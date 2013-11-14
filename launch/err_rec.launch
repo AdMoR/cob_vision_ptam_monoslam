@@ -1,0 +1,3 @@
+<launch>
+<node name="err_rec" pkg="cob_vision_ptam_monoslam" type="error_rec" output="screen"/>
+</launch>

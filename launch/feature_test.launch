@@ -1,0 +1,3 @@
+<launch>
+<node name="feat_test" pkg="cob_vision_ptam_monoslam" type="ftest" output="screen"/>
+</launch>

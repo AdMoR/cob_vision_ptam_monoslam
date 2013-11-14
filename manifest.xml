@@ -1,0 +1,43 @@
+<package>
+  <description brief="cob_vision_ptam_monoslam">
+
+     cob_vision_ptam_monoslam
+
+  </description>
+  <author>Oier Mees, email:oier.mees@gmail.com</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/cob_vision_ptam_monoslam</url>
+  <rosdep name="eigen"/>
+  <rosdep name="suitesparse"/>
+  <rosdep name="boost"/>
+  <rosdep name="opengl"/>
+  <rosdep name="libglew-dev"/>
+  <rosdep name="glut"/>
+  <rosdep name="opencv2"/>
+  <rosdep name="atlas"/>
+  <depend package="libg2o"/> 
+  <depend package="pcl"/>
+  <!--depend package="pcl_ros"/-->
+  <depend package="roscpp"/>
+  <depend package="cv_bridge"/>
+  <rosdep name="openni-dev" />
+  <rosdep name="ps-engine" />
+  <depend package="message_filters"/>
+  
+  <depend package="ptam"/>
+  <depend package="msgpkg"/>
+  <depend package="sensor_msgs"/>
+  <depend package="stereo_msgs"/>
+  <depend package="std_msgs"/>
+  <depend package="libcvd"/>
+  <depend package="libsophus"/>
+  <depend package="libpangolin"/>
+  <depend package="libvisiontools"/>
+  <depend package="libgvars"/>
+  <depend package="tf"/>
+  
+  
+</package>
+
+

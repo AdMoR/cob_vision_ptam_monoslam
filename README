@@ -1,0 +1,83 @@
+The aim of this project is to integrate line information into ScaViSLAM, in order to cope with textureless environments like blank corridors. Localization typically fails in these environments, because enough feature points can't be found. This project started as part of the degree thesis of Oier Mees <oier.mees@gmail.com> during his internship at Fraunhofer IPA and is now maintained by Richard Bormann <richard.bormann@ipa.fraunhofer.de>
+
+
+How to compile and run the application
+--------------------------------------
+ROS Fuerte was used, so the package has yet to be catkinized. ScaViSLAM has a lot of external dependencies. Some of them have been rosified with wrappers, others are are handled with rosdep. In general, I advise first reading ScaViSLAM's README. Also, CUDA was not used during the development, because the Care-O-Bot doesn't support it, but it should be trivial to enable it.
+I think there is still some work to be done, to achieve an easy installable packet. For instance, in the CMakeLists.txt there is still a hardcoded path for OpenCV, which should be fixed.
+
+
+
+After compiling with rosmake, four binaries are created. stereo_slam is the original code of ScaViSLAM and the line tracker etc. is in mono_slam, despite working with the kinect.
+
+To run the application, first connect the Kinect and start the OpenNI driver:
+$ roslaunch openni_launch openni.launch depth_registration:=true
+
+Then start the service to get 3D information of the camera:
+$ rosrun cob_vision_ptam_monoslam point_cloud_server
+
+Finally start the main application:
+$ roslaunch cob_vision_ptam_monoslam mono.launch cfgname:=rgbd_live.cfg
+
+
+
+
+
+If you want to use the newcollege dataset with the line tracker(which doesn't work well, because too few lines are found. Modifying Hough parameters is necessary), just type:
+$ roslaunch cob_vision_ptam_monoslam mono.launch cfgname:=newcollege.cfg
+
+If you want to run the original ScaViSLAM code with the newcollege dataset:
+$ roslaunch cob_vision_ptam_monoslam stereo.launch cfgname:=newcollege.cfg
+
+
+
+To run the care-o-bot dataset, start the openni driver like this:
+$ roslaunch openni_launch openni.launch load_driver:=false
+
+Then start the service to get 3D information of the camera:
+$ rosrun cob_vision_ptam_monoslam point_cloud_server
+
+afterwards go to home/rosbag2/ and type for instace:
+$ rosbag play translation.bag --clock /cam3d/depth_registered/camera_info:=/camera/depth_registered/camera_info /cam3d/rgb/camera_info:=/camera/rgb/camera_info /cam3d/depth_registered/disparity:=/camera/depth_registered/disparity /cam3d/rgb/image_raw:=/camera/rgb/image_raw /cam3d/depth_registered/image_raw:=/camera/depth_registered/image_raw
+
+rosbag play slam1.bag --clock /camera/depth/camera_info:=/camera/depth_registered/camera_info  /camera/rgb/camera_info:=/camera/rgb/camera_info  /camera/depth/disparity:=/camera/depth_registered/disparity /camera/rgb/image_color:=/camera/rgb/image_raw /camera/depth/image:=/camera/depth_registered/image_raw
+
+rosbag play synth.bag --clock /depth/camera_info:=/camera/depth_registered/camera_info  /cam3d/rgb/camera_info:=/camera/rgb/camera_info  /cam3d/rgb/image_raw:=/camera/rgb/image_raw /depth/image_raw:=/camera/depth_registered/image_raw
+
+
+rosbag play small_loop.bag --clock /camera/depth/camera_info:=/camera/depth_registered/camera_info  /camera/rgb/camera_info:=/camera/rgb/camera_info  /camera/rgb/image:=/camera/rgb/image_raw /camera/depth/image:=/camera/depth_registered/image_raw
+
+
+
+Finally start the main application as usual:
+$ roslaunch cob_vision_ptam_monoslam mono.launch cfgname:=rgbd_live.cfg
+
+
+Information about the classes
+-----------------------------
+The "main" loop of the software is in mono_slam.cpp.
+The main loop of the frontend is MonoFrontend::processFrame(), where computeLines() and lineMatcher() methods are called. Also updateOptimizedPluckerParameters() and addNewLinesToKeyFrame() are important.
+All the matching related algorithms are in matcher.cpp.
+Some important auxiliary methods, can be found as inlines in transformations.h
+The classes related to the optimizer are backend.cpp, slam_graph.cpp and anchored_points.cpp (the interface to g2o is defined here).  Very important are the optimize(), copyDataToG2o(), restoreDataFromG2o() and addKeyFrame() methods in slam_graph.cpp. To choose if you want to optimize only with points, only with lines or with both, call the method by changing the last parameter accordingly:
+//copyDataToG2o(opt_params, &optimizer, POINTS);
+copyDataToG2o(opt_params, &optimizer, POINTS_AND_LINES);
+//copyDataToG2o(opt_params, &optimizer, LINES);
+
+
+PTAM was included by using the ethz package as well as including it directly. The PTAM related code has been commented out. The non-SSD line descriptor and matcher could also be deleted or commented out, since it is not used anymore.
+
+
+---------------------------------
+Useful commands
+---------------------------------
+roslaunch cob_bringup_sim robot.launch 
+
+roslaunch cob_bringup dashboard.launch 
+
+roslaunch cob_navigation_global 2dnav_ros_dwa.launch
+
+roslaunch cob_bringup teleop.launch 
+
+roslaunch cob_bringup rviz.launch 
+

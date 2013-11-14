@@ -1,0 +1,12 @@
+<launch>
+
+ <arg name="cfgname"/> 
+  <node name="mono" pkg="cob_vision_ptam_monoslam" type="mono_slam" clear_params="true" output="screen" launch-prefix="gdb -ex run --args" >
+ <node name="err" pkg="cob_vision_ptam_monoslam" type="errorf" output="screen"/>
+     <param name="cfgpath" value="$(find cob_vision_ptam_monoslam)/common/files/data/$(arg cfgname)" /> 
+     <param name="surfwordspath" value="$(find cob_vision_ptam_monoslam)/common/files/data/surfwords10000.png" type="str"/> 
+  <rosparam file="$(find ptam)/PtamFixParams.yaml"/>
+  </node>
+ <node pkg="dynamic_reconfigure" type="dynparam" name="dynparam" args="set /camera/driver depth_registration true" /> 
+
+</launch>
