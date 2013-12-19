@@ -154,6 +154,9 @@ computeLineProjectionMatrix2(Matrix<double,3,4> projectionsMatrix, Matrix<double
 
 }
 
+
+
+
 inline Vector4d
 toHomogeneousCoordinates(Vector3d vec)
 {
@@ -171,6 +174,8 @@ computeLineProjectionMatrix(Matrix<double,3,4> projectionsMatrix)
 
 	//Plücker Dual Coordinates
 	//L* = P(Q)T - Q(P)T
+
+	//cout << "Projection matrix : " << endl << projectionsMatrix << endl;
 
 	//(p2 ∧ p3)
 	Matrix<double, 4, 4> p1 = projectionsMatrix.row(1).transpose() * projectionsMatrix.row(2) - projectionsMatrix.row(2).transpose() * projectionsMatrix.row(1);
@@ -207,6 +212,8 @@ computeLineProjectionMatrix(Matrix<double,3,4> projectionsMatrix)
 //				p3(2,3), p3(3,1), p3(1,2), p3(0,3), p3(0,2), p3(0,1);
 //		cout<<"tmp: "<<tmp<<endl;
 //	cout<<"line Projection Matrix: "<<result<<endl;
+
+	//cout << "New Projection matrix : " << endl << result << endl;
 
 	return result;
 }
@@ -289,17 +296,34 @@ inline void cartesianToPolar(Vector3d line, double &mag, double &angle)
 		mag=-mag;
 		angle=angle+180.0;
 	}
+//	cout << line(0) << " " << line(1) << " " << line(2) << endl;
+//	cout<<"radius: "<<mag<<" angle: "<<angle<<endl;
 	assert(angle>=(double)0.0 && angle<=(double)180.0);
-	cout<<"radius: "<<mag<<" angle: "<<angle<<endl;
-}
+	}
+
+
 
 inline double
 computePolarDistance(const double projectedLineMag,const double projectedLineAng, const double currentLineMag, const double currentLineAng, const double weight)
 {
-	double distance = sqrt((projectedLineMag-currentLineMag)*(projectedLineMag-currentLineMag) + weight*((projectedLineAng-currentLineAng)*(projectedLineAng-currentLineAng)));
-	//cout<<"distance: "<<distance<<" diff mag: "<<projectedLineMag-currentLineMag<<" diff angle: "<<projectedLineAng-currentLineAng<<endl;
-	return distance;
+	//TODO find a clever way
+	double diffAngle = min(abs(projectedLineAng-currentLineAng),abs( (double)((int)floor(projectedLineAng+10) % 180)-((int)floor(currentLineAng+10) % 180) ));
+
+	if(abs(projectedLineAng-currentLineAng)<90)
+		return sqrt((projectedLineMag-currentLineMag)*(projectedLineMag-currentLineMag) + weight*(diffAngle*diffAngle));
+	else
+		return sqrt((projectedLineMag+currentLineMag)*(projectedLineMag+currentLineMag) + weight*(diffAngle*diffAngle));
+
 }
+
+inline double linearFormDist(Vector3d form1, Vector3d form2,double errormax=0){
+	//Doesnt make use of errormax yet
+	double mag1,mag2,angle1,angle2;
+	cartesianToPolar(form1, mag1,angle1);
+	cartesianToPolar(form2, mag2, angle2);
+	return computePolarDistance(mag1,angle1,mag2,angle2,10);
+}
+
 
 inline bool
 isThereAnIntersectionBetweenLines(Vector3d l1, Vector3d l2)

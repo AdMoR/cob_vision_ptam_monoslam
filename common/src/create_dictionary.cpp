@@ -33,6 +33,7 @@
 
 using namespace std;
 
+
 list<string> preprocessFiles(const boost::filesystem::path & directory)
 {
   list<string> name_list;

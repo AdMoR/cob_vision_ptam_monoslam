@@ -231,7 +231,7 @@ private:
   updateOptimizedPluckerParameters(tr1::unordered_map<int,Line> &tracked_lines, LineTable &tracked_lines_result);
 
   bool
-  request3DCoordsAndComputePlueckerParams(Vector6d &pluckerLines, Vector3d &startingPoint, Vector3d &endPoint, int x1, int y1, int x2, int y2);
+  request3DCoordsAndComputePlueckerParams(Vector6d &pluckerLines,Vector6d &localPluckerLines, Vector3d &startingPoint, Vector3d &endPoint, int x1, int y1, int x2, int y2);
 
   bool
   request3DCoords(int x, int y, Vector3d *output);

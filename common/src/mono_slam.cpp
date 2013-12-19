@@ -61,6 +61,8 @@ bool show_next_frame = false;
 bool play_frames = false;
 bool stop = false;
 
+int KF_NUMBER=0;
+
 static bool publish_data=true;
 
 class PyramidView

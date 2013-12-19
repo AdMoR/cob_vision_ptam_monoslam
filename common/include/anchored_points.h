@@ -136,7 +136,7 @@ public:
   }
 };
 
-class G2oEdgeSE3PlueckerLine : public  g2o::BaseBinaryEdge<6 , Vector6d, G2oVertexSE3, G2oVertexPlueckerLine>
+class G2oEdgeSE3PlueckerLine : public  g2o::BaseBinaryEdge<3 , Vector3d, G2oVertexSE3, G2oVertexPlueckerLine>
 {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -157,6 +157,7 @@ public:
 //  void linearizeOplus        ();
 
   G2oCameraParameters * g2o_cam;
+  SE3 T_cur_f_actkey;
 };
 
 class G2oEdgeProjectPSI2UVU : public  g2o::BaseMultiEdge<3, Vector3d>

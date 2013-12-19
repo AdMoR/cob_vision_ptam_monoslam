@@ -19,8 +19,12 @@
 
 #include "stereo_camera.h"
 #include "transformations.h"
+#include "utilities.h"
 
 #include <g2o/core/robust_kernel_impl.h>
+
+int current_id=0;
+extern Matrix<double,3,3> g_camera_matrix;
 
 namespace ScaViSLAM
 {
@@ -98,13 +102,14 @@ void SlamGraph<SE3,StereoCamera, SE3XYZ_STEREO, 3>
 
 template <>
 void SlamGraph<SE3,StereoCamera, SE3XYZ_STEREO, 3>
-::addLineObsToG2o(const Vector6d & obs,
-              const Matrix6d & Lambda,
+::addLineObsToG2o(const Vector3d & obs, //Here 6->3
+              const Matrix3d & Lambda, //Again
               int g2o_line_id,
               int pose_id,
               bool robustify,
               double huber_kernel_width,
-              g2o::SparseOptimizer * optimizer)
+              g2o::SparseOptimizer * optimizer,
+              SE3 T_me_f_actkey)
 {
   G2oEdgeSE3PlueckerLine * e = new G2oEdgeSE3PlueckerLine();
 
@@ -124,14 +129,46 @@ void SlamGraph<SE3,StereoCamera, SE3XYZ_STEREO, 3>
   assert(pose_vertex!=NULL);
   assert(pose_vertex->dimension()==6);
   e->vertices()[0] = pose_vertex;
+  //pose_vertex->
 
 
-  assert(line_vertex!=NULL);
+   assert(line_vertex!=NULL);
   assert(line_vertex->dimension()==6);
   e->vertices()[1] = line_vertex;
 
   e->setMeasurement(obs);
   e->information() = Lambda;
+
+//  SE3 tf;
+  //tf=SE3(T_me_f_w);
+
+//  if(true){
+//
+//	  Matrix<double,4,4> tr = T_me_f_w;//v1->estimate().matrix();
+//	  Matrix<double,3,3> roo;
+//	  Vector3d t;
+//	  for(int i=0;i<3;i++){
+//		  for(int j=0;j<3;j++)
+//			  roo(i,j)=T_me_f_w(i,j);
+//		  t(i)=T_me_f_w(i,3);
+//	  }
+//	  SE3 s= SE3(roo,t);
+//	  Vector3d tra=s.translation();
+//	  Quaterniond  ro=s.unit_quaternion();
+//	  dumpToFile("Transform from frame to world (approximate) : translation + quat",tra(0),tra(1),tra(2),double(ro.x()),double(ro.y()),double(ro.z()),double(ro.w()),"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  Matrix<double,3,6> projMat=computeLineProjectionMatrix(computeProjectionMatrix(g_camera_matrix, tr ));
+//	  dumpToFile("projection matrix of line : ", g2o_line_id, pose_id,0,0,0,0,0,"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  dumpToFile("line1 : ",projMat(0,0), projMat(0,1), projMat(0,2), projMat(0,3),projMat(0,4),projMat(0,5),pow(10,7),"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  dumpToFile("line2 : ",projMat(1,0), projMat(1,1), projMat(1,2), projMat(1,3),projMat(1,4),projMat(1,5),pow(10,7),"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  dumpToFile("line3 : ",projMat(2,0), projMat(2,1), projMat(2,2), projMat(2,3),projMat(2,4),projMat(2,5),pow(10,7),"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  dumpToFile("projection of line : ", g2o_line_id, 0, 0,0,0,0,0,"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  dumpToFile("ax+by+c : ", obs(0),obs(1),obs(2),pow(10,7),pow(10,7),pow(10,7),pow(10,7),"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//	  dumpToFile("", 0,0,0,0,0,0,0,"/home/rmb-am/Slam_datafiles/ProjectionMatrixLines.txt");
+//  }
+
+  e->setId(current_id);
+  current_id+=1;
+  e->T_cur_f_actkey=T_me_f_actkey;
 
   if (robustify)
   {

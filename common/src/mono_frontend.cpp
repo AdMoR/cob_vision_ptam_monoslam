@@ -15,7 +15,10 @@
 #include "pose_optimizer.h"
 #include "utilities.h"
 
-static bool line_mode=true;
+
+static bool dump=true;
+
+extern int KF_NUMBER;
 
 namespace ScaViSLAM {
 
@@ -32,15 +35,17 @@ int ratio = 2;
 int kernel_size = 3;
 cv::Mat dst2;
 
-Matrix<double, 4, 4> transformMatrix ;
 
-double rolling_average=500;
+
+Matrix<double,3,3> g_camera_matrix;
+Matrix<double,4,4> transformMatrix;
 
 MonoFrontend::MonoFrontend(FrameData<StereoCamera> * frame_data,
 		PerformanceMonitor * per_mon) :
 	frame_data_(frame_data), per_mon_(per_mon),
 			neighborhood_(new Neighborhood()), se3xyz_stereo_(frame_data->cam),
 			unique_point_id_counter_(-1), tracker_(*frame_data_) {
+
 }
 
 
@@ -201,7 +206,10 @@ void MonoFrontend::computeLines(std::vector<Line> &linesOnCurrentFrame, SE3 & T_
 	colorImage.image = frame_data_->cur_left().color_uint8;
 	cv::Mat firstRGBFrame = colorImage.image.clone();
 
+
 	transformMatrix = T_cur_from_w.matrix();
+
+	dumpToFile(std::to_string(frame_id),transformMatrix(0,3),transformMatrix(1,3),transformMatrix(2,3),transformMatrix(0,0),0,0,0,"/home/rmb-am/Slam_datafiles/map/no_lp.txt");
 
 	// Apply Histogram Equalization
 	cv::equalizeHist( grayImage.image, src );
@@ -239,52 +247,58 @@ void MonoFrontend::computeLines(std::vector<Line> &linesOnCurrentFrame, SE3 & T_
 //        	cout<<"descriptor["<<i<<"]: "<<descriptor[i]<<endl;
 //        }
 //    	computeSVDPluecker(pixelsOnLine);
-        Vector6d pluckerLines;
+        Vector6d pluckerLines,localPlucker;
         Vector3d startingPoint;
         Vector3d endPoint;
-	        if (request3DCoordsAndComputePlueckerParams(pluckerLines, startingPoint, endPoint, lines[i][0], lines[i][1], lines[i][2],lines[i][3]))
-			{
+//	        if (request3DCoordsAndComputePlueckerParams(pluckerLines,localPlucker, startingPoint, endPoint, lines[i][0], lines[i][1], lines[i][2],lines[i][3]))
+//			{
 //			cout << "plucker param: " << pluckerLines[0] << " " << pluckerLines[1] << " " << pluckerLines[2] << " "
 //					<< pluckerLines[3] << " " << pluckerLines[4] << " " << pluckerLines[5] << endl;
 
 	        	cv::line( colorImage.image, cv::Point(lines[i][0], lines[i][1]), cv::Point(lines[i][2], lines[i][3]), cv::Scalar(255,0,0), 2, 8 );
-
-
+	        	Vector2d onePoint=Vector2d( lines[i][2],lines[i][3]);//( lines[i][3],-lines[i][2]) or (-lines[i][2], lines[i][3])
 				Line currentLine;
 				currentLine.global_id=getNewUniquePointId(); //We use the same counter as there is no reason to create another
-				currentLine.anchor_id=frame_id;
+				currentLine.anchor_id=actkey_id;
+				currentLine.T_frame_w=T_cur_from_actkey_;
+				//currentLine.T_frame_w=T_cur_from_w;
+				currentLine.originalT=T_cur_from_w;
+				//cout << "BOUM "<<T_cur_from_actkey_.translation() << "BIM>>>>>>>" << T_cur_from_w.translation() << ">>>>>BAM" << endl;
 				currentLine.linearForm = calculateLinearForm(lines[i][0], lines[i][1], lines[i][2],lines[i][3]);
 				currentLine.linearForm.normalize();
 				currentLine.descriptor = descriptor;
-				currentLine.pluckerLinesObservation = pluckerLines;
-				currentLine.optimizedPluckerLines = pluckerLines;
-				currentLine.count = 3;
+				currentLine.pluckerLinesObservation = currentLine.linearForm;//localPlucker;
+				currentLine.optimizedPluckerLines = Vector6d();//pluckerLines;
+				currentLine.optimizedPluckerLines << 0.16666 , -0.16666 ,0.16666 ,-0.16666 ,0.16666 ,-0.16666;
+				if(currentLine.global_id==1)
+					pluckerToFile(pluckerLines,1);
+				currentLine.count = 6;
+				currentLine.Kf_count=KF_NUMBER;
 				currentLine.startingPoint2d = cv::Point(lines[i][0], lines[i][1]);
 				currentLine.endPoint2d = cv::Point(lines[i][2], lines[i][3]);
-				currentLine.startingPoint3d = startingPoint;
-				currentLine.endPoint3d = endPoint;
+				Vector2d l=Vector2d(-currentLine.linearForm(1),currentLine.linearForm(0));
+				l.normalize();
+				currentLine.rtheta=currentLine.startingPoint2d.x*l(0)+currentLine.startingPoint2d.y*l(1);
+				if(currentLine.linearForm(2)>0)
+					currentLine.rtheta=-currentLine.rtheta;
+				if(currentLine.global_id==1){
+					cout << currentLine.global_id << currentLine.linearForm << endl;
+					getProjectionVector(onePoint,531.15,currentLine.projectionVector,true);}
+				else
+					getProjectionVector(onePoint,531.15,currentLine.projectionVector,false);
+				if(request3DCoordsAndComputePlueckerParams(currentLine.GTPlucker,localPlucker,currentLine.startingPoint3d,currentLine.endPoint3d,lines[i][0], lines[i][1], lines[i][2],lines[i][3]))
+					{Vector3d lineVec=currentLine.endPoint3d-currentLine.startingPoint3d;
+					lineVec.normalize();
+					if(currentLine.global_id<15)
+						dumpToFile(std::to_string(currentLine.global_id),lineVec(0),lineVec(1),lineVec(2),100000000,100000000,1000000000,10000000000,"/home/rmb-am/Slam_datafiles/3DcoordLine.txt");
+				}
+				currentLine.consecutive_frame=0;
 				linesOnCurrentFrame.push_back(currentLine);
 				if (firstFrame)
 				{
-//					if(aux==0)
-//					{
-//					cv::line( firstRGBFrame, cv::Point(lines[i][0], lines[i][1]),
-//						                cv::Point(lines[i][2], lines[i][3]), cv::Scalar(165,100,200), 2, 8 );
-//					cv::imshow("1. lerroa", firstRGBFrame);
-//					cv::waitKey(1);
-//					++aux;
-//					}
-					//Previously uncommented and used for ADD_TO...
-					//int id1 = getNewUniquePointId();
-//					cout<<"id1: "<<id1<<endl;
-//					cout<<"plücker: "<<currentLine.nonOptimizedPluckerLines<<endl;
 					ADD_TO_MAP_LINE(currentLine.global_id, currentLine, &tracked_lines);
-
 				}
-			}
-//	        else
-//	        	cout <<""<<endl;
-	        	//cout << "No 3D coordinates for line" << endl;
+//			}
     }
 
 //    cv::imshow("current lines", colorImage.image);
@@ -757,7 +771,7 @@ bool MonoFrontend::request3DCoords(int x, int y, Vector3d *output)
 	}
 }
 
-bool MonoFrontend::request3DCoordsAndComputePlueckerParams(Vector6d &pluckerLines, Vector3d &startingPoint, Vector3d &endPoint, int x1, int y1, int x2, int y2)
+bool MonoFrontend::request3DCoordsAndComputePlueckerParams(Vector6d &pluckerLines,Vector6d &localPluckerLines, Vector3d &startingPoint, Vector3d &endPoint, int x1, int y1, int x2, int y2)
 {
 	if (x1 > x2) // Swap points if p1 is on the right of p2
 	{
@@ -794,10 +808,9 @@ bool MonoFrontend::request3DCoordsAndComputePlueckerParams(Vector6d &pluckerLine
 	{
 		if(request3DCoords(x2, y2,&endPoint))
 		{
-			//cout<<"found ending points: ("<<x2<<", "<<y2<<")"<<endl;
-			//cout<<"endPoint "<<*endPoint<<endl;
-
-			//cout << startingPoint[0] << " " << startingPoint[1] << " " << startingPoint[2] << "before " << endl;
+			  Vector3d lbegin=startingPoint,lend=endPoint;
+			  //Vector6d localPluckerLines;
+			  localPluckerLines = computePlueckerLineParameters(lbegin,lend);
 
 	          Vector4d transformedStartingPoint = transformMatrix.inverse()*toHomogeneousCoordinates(startingPoint);
 	          Vector4d transformedEndingPoint = transformMatrix.inverse()*toHomogeneousCoordinates(endPoint);
@@ -813,6 +826,7 @@ bool MonoFrontend::request3DCoordsAndComputePlueckerParams(Vector6d &pluckerLine
 
 
 			pluckerLines = computePlueckerLineParameters(startingPoint,endPoint);
+
 			return true;
 		}
 		else
@@ -866,6 +880,7 @@ void MonoFrontend::processFirstFrame() {
 	frameCounter=0;
 	draw_data_.clear();
 	T_cur_from_actkey_ = SE3();
+
 
 	ALIGNED<QuadTree<int> >::vector feature_tree;
 
@@ -939,24 +954,25 @@ void MonoFrontend::addNewLinesToKeyFrame(std::vector<Line> &linesOnCurrentFrame,
 	for (auto iter = linesOnCurrentFrame.begin(); iter != linesOnCurrentFrame.end(); ++iter)
 	{
 
-//		for (auto b : localIDsofNewLinesToBeAdded)
-//		{
-//			if(index==b)
-//			{
+		for (auto b : localIDsofNewLinesToBeAdded)
+		{
+			if(index==b)
+			{
 				//cout<<"insertin new line, index: "<<index<<endl;
 				int newLineId = (*iter).global_id;
-				(*iter).optimizedPluckerLines=toPlueckerVec(T_cur_from_w.matrix().inverse()*toPlueckerMatrix((*iter).optimizedPluckerLines)*T_cur_from_w.matrix().inverse().transpose());
+				//(*iter).optimizedPluckerLines=toPlueckerVec(T_cur_from_w.matrix().inverse()*toPlueckerMatrix((*iter).optimizedPluckerLines)*T_cur_from_w.matrix().inverse().transpose());
+				(*iter).optimizedPluckerLines=toPlueckerVec(toPlueckerMatrix((*iter).optimizedPluckerLines));
 				//GuidedMatcher<StereoCamera>::drawLine((*iter).linearForm, colorImage.image, "new", cv::Scalar(0,186,86),false);
 				ADD_TO_MAP_LINE(newLineId, (*iter), &tracked_lines);
 
-//				break;
-//			}
-//			if(index<b)
-//			{
-//				break;
-//			}
-//		}
-//		++index;
+				break;
+			}
+			if(index<b)
+			{
+				break;
+			}
+		}
+		++index;
 	}
 	to_optimizer->tracked_lines=tracked_lines;
 }
@@ -984,6 +1000,7 @@ void MonoFrontend::updateOptimizedPluckerParameters(tr1::unordered_map<int,Line>
 bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	cv_bridge::CvImage out_msg;
 	out_msg.encoding = sensor_msgs::image_encodings::MONO8;
+	int frame_id=getNewUniquePointId();
 //	out_msg.image = frame_data_->cur_left().uint8;
 //	sensor_msgs::ImageConstPtr img_mono;
 //	img_mono = out_msg.toImageMsg();
@@ -1027,13 +1044,6 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 
 	draw_data_.clear();
 
-	//Get the estimation of the blurriness of the image
-//	double m =getEstimforBlur(frame_data_->cur_left().pyr_uint8[0]);
-//	cout << rolling_average << " >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << m << endl;
-//	if(m<0.75*rolling_average)
-//		imshow("BLUUUUUUUUUUUUUUUUR",frame_data_->cur_left().pyr_uint8[0]);
-//	rolling_average=(4*rolling_average+m)/5;
-	//Could be used to stop here the processing of the frame and keep the old values
 
 
 	const ALIGNED<StereoCamera>::vector & cam_vec = frame_data_->cam_vec;
@@ -1086,6 +1096,7 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	Timer t1;
 	t1.start();
 	SE3 T_act_from_w = GET_MAP_ELEM(actkey_id,neighborhood_->vertex_map).T_me_from_w;
+	cout<< T_act_from_w << ">>><>>> act from w " << endl;
 	SE3 T_cur_from_world = T_cur_from_actkey_*T_act_from_w;
 	computeLines(linesOnCurrentFrame,T_cur_from_world, false,actkey_id);
 	t1.stop();
@@ -1136,19 +1147,21 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	GuidedMatcher<StereoCamera>::lineMatcher(linesOnCurrentFrame, tracked_lines,
 			T_cur_from_actkey_, actkey_id, neighborhood_->vertex_map, camera_matrix,
 			&colorImage.image, edges, this, to_optimizer, localIDsofNewLinesToBeAdded,
-			T_cur_from_w);
+			T_cur_from_w,frame_id);
 	t2.stop();
 
 
 
 	//Dump the transform to the anchorKf
-	tf::Vector3 v=tf::Vector3(T_cur_from_actkey_.matrix()(0,3),T_cur_from_actkey_.matrix()(1,3),T_cur_from_actkey_.matrix()(2,3));
-	tf::Quaternion q(T_cur_from_actkey_.so3().unit_quaternion().x(),T_cur_from_actkey_.so3().unit_quaternion().y(),T_cur_from_actkey_.so3().unit_quaternion().z(),T_cur_from_actkey_.so3().unit_quaternion().w());
-	stringstream ss;
-	ss << actkey_id << "-" << getNewUniquePointId() ;
-	dumpToFile(ss.str(), v.x(), v.y(), v.z(), q.x(), q.y(), q.z(), q.w(), "/home/rmb-am/Slam_datafiles/map/aux_map.txt");
-	//Dump line info
-	 getTrackedLinesToFile(tracked_lines);
+	if(dump){
+		tf::Vector3 v=tf::Vector3(T_cur_from_actkey_.matrix()(0,3),T_cur_from_actkey_.matrix()(1,3),T_cur_from_actkey_.matrix()(2,3));
+		tf::Quaternion q(T_cur_from_actkey_.so3().unit_quaternion().x(),T_cur_from_actkey_.so3().unit_quaternion().y(),T_cur_from_actkey_.so3().unit_quaternion().z(),T_cur_from_actkey_.so3().unit_quaternion().w());
+		stringstream ss;
+		ss << actkey_id << "-" << frame_id ;
+		dumpToFile(ss.str(), v.x(), v.y(), v.z(), q.x(), q.y(), q.z(), q.w(), "/home/rmb-am/Slam_datafiles/map/aux_map.txt");
+		//Dump line info
+		 getTrackedLinesToFile(tracked_lines);
+	}
 
 
 
@@ -1179,8 +1192,7 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	} else {
 
 		*is_frame_dropped = shallWeDropNewKeyframe(point_stats); /* if the incremental translation/parallax exceeded
-		 a threshold, or the number of tracked feature dropped below a critical limit, current video frame is added as a new keyframe Vi to the graph
-		 */
+		 a threshold, or the number of tracked feature dropped below a critical limit, current video frame is added as a new keyframe Vi to the graph */
 		if (*is_frame_dropped) {
 			addNewLinesToKeyFrame(linesOnCurrentFrame, to_optimizer, localIDsofNewLinesToBeAdded, T_cur_from_w);
 			addNewKeyframe(feature_tree, to_optimizer, &matched_new_feat,linesOnCurrentFrame,
@@ -1210,7 +1222,8 @@ void MonoFrontend::addNewKeyframe(
 	Matrix3i add_flags;
 	add_flags.setZero();
 
-	cout << "NEW KF <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<" << endl;
+	KF_NUMBER+=1;
+	cout << "NEW KF <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< " << KF_NUMBER << endl;
 
 	static pangolin::Var<int> ui_min_num_points("ui.min_num_points", 25, 20,
 			200);
@@ -1255,6 +1268,7 @@ void MonoFrontend::addNewKeyframe(
 	//For lines
 	for (tr1::unordered_map<int, Line>::const_iterator it =	to_optimizer->tracked_lines.begin(); it!= to_optimizer->tracked_lines.end(); ++it) {
 		Line p = (it->second);
+		p.Kf_count+=1;
 		ADD_TO_MAP_ELEM(p.anchor_id, 1, &num_matches); //Add one to the covis val
 		vf.line_map.insert(make_pair(p.global_id, p)); //The new lines features discovered before are entered in the vertex
 	}

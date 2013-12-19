@@ -5,7 +5,7 @@
  *      Author: rmb-am
  */
 
-#include "utilities.h"
+//#include "utilities.h"
 
 using namespace std;
 using namespace cv;
@@ -93,38 +93,38 @@ using namespace cv;
 
 int main(){
 
-	Mat img_no_blur, img_blur,img_test;
-
-	double m;
-
-
-//	cvtColor( imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/1.pnm"), img_no_blur, CV_RGB2GRAY );
-//	cvtColor( imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/2.pnm"), img_blur, CV_RGB2GRAY );
-//	cvtColor( imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/3.pnm"), img_test, CV_RGB2GRAY );
-	img_no_blur=imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/1.pnm");
-	img_blur=imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/2.pnm");
-	img_test=imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/3.pnm");
-
-	Mat blurred_no_blur;
-	GaussianBlur(img_no_blur,blurred_no_blur,Size(5,5),1,1,BORDER_DEFAULT);
-
-
-	cout << img_no_blur.channels() << endl;
-	m=getEstimforBlur(img_no_blur);
-
-	cout << " max is " << m << endl;
-
-	m=getEstimforBlur(img_blur);
-
-	cout << " max is " << m << endl;
-
-	m=getEstimforBlur(img_test);
-
-	cout << " max is " << m << endl;
-
-	m=getEstimforBlur(blurred_no_blur);
-
-	cout << " max is " << m << endl;
+//	Mat img_no_blur, img_blur,img_test;
+//
+//	double m;
+//
+//
+////	cvtColor( imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/1.pnm"), img_no_blur, CV_RGB2GRAY );
+////	cvtColor( imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/2.pnm"), img_blur, CV_RGB2GRAY );
+////	cvtColor( imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/3.pnm"), img_test, CV_RGB2GRAY );
+//	img_no_blur=imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/1.pnm");
+//	img_blur=imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/2.pnm");
+//	img_test=imread("/home/rmb-am/git/cob_object_perception_intern/cob_vision_ptam_monoslam/3.pnm");
+//
+//	Mat blurred_no_blur;
+//	GaussianBlur(img_no_blur,blurred_no_blur,Size(5,5),1,1,BORDER_DEFAULT);
+//
+//
+//	cout << img_no_blur.channels() << endl;
+//	m=getEstimforBlur(img_no_blur);
+//
+//	cout << " max is " << m << endl;
+//
+//	m=getEstimforBlur(img_blur);
+//
+//	cout << " max is " << m << endl;
+//
+//	m=getEstimforBlur(img_test);
+//
+//	cout << " max is " << m << endl;
+//
+//	m=getEstimforBlur(blurred_no_blur);
+//
+//	cout << " max is " << m << endl;
 
 
 

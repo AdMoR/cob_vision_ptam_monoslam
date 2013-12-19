@@ -16,8 +16,14 @@
 // along with ScaViSLAM.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "anchored_points.h"
-
+//#include "matcher.cpp"
+#include "proj.h"
 #include "transformations.h"
+#include "utilities.h"
+
+extern Matrix<double,3,3> g_camera_matrix;
+
+int THEID=-1;
 
 namespace ScaViSLAM
 {
@@ -54,6 +60,7 @@ void G2oVertexSE3
 ::oplusImpl(const double * update_p)
 {
   Map<const Vector6d> update(update_p);
+  //cout << _id << " is my id !" << endl;
   setEstimate(SE3::exp(update)*estimate());
 }
 
@@ -131,8 +138,11 @@ bool G2oVertexPlueckerLine
 void G2oVertexPlueckerLine
 ::oplusImpl(const double * update_p)
 {
+	//cout << "estimate " << _estimate << endl;
   Map<const Vector6d> update(update_p);
   _estimate += update;
+  _estimate.normalize();
+  //cout << "estimate2 " << _estimate << endl << endl;
 }
 
 
@@ -153,7 +163,7 @@ bool G2oEdgeSE3PlueckerLine
 	is >> pId;
 	setParameterId(0, pId);
 	// measured keypoint
-	Vector6d meas;
+	Vector3d meas;                        //Changed 6->3
 	for (int i = 0; i < 6; i++)
 		is >> meas[i];
 	setMeasurement(meas);
@@ -177,31 +187,79 @@ bool G2oEdgeSE3PlueckerLine
 void G2oEdgeSE3PlueckerLine
 ::computeError()
 {
+
+
+
+
+
 	  const G2oVertexSE3 * v1
 	      = static_cast<const G2oVertexSE3*>(_vertices[0]);
 	  const G2oVertexPlueckerLine * l2
 	     = static_cast<const G2oVertexPlueckerLine*>(_vertices[1]);
-	  Vector6d obsVec(_measurement);
-	  obsVec.normalize();
-//	  Matrix<double, 4, 4> obsPlueckerMatrix;
-//	  obsPlueckerMatrix = toPlueckerMatrix(obsVec);
-//	  obsPlueckerMatrix.normalize(); //why not normalize vector? is faster
+	  Vector3d obsVec(_measurement);
 
-	  Matrix<double, 4, 4> estimationPlueckerMatrix;
-	  Vector6d estim = l2->estimate();
-	  estim.normalize();
-	  estimationPlueckerMatrix = toPlueckerMatrix(estim);
-//	  estimationPlueckerMatrix.normalize();
 
-	  Matrix<double, 4, 4> tmpMatrix;
-	  tmpMatrix = v1->estimate().matrix() * estimationPlueckerMatrix
-			  * v1->estimate().matrix().transpose();
-//	  tmpMatrix.normalize();
+	  //cout << T_cur_f_actkey.translation()<<" <> " << v1->estimate().inverse().translation()<< " "<< id() << " " <<v1->id() << endl;
 
-	  //todo: check if error is zero when estimation and observation are the same
-	  Vector6d tmpVec = toPlueckerVec(tmpMatrix);
-	  tmpVec.normalize();
-	  _error = tmpVec - obsVec;
+	   SE3 T_cur_w = (T_cur_f_actkey*v1->estimate());//The normal case
+	   //SE3 T_cur_w = (T_cur_f_actkey); //The optimizer friendly case
+	   Matrix<double,4,4> tr=T_cur_w.matrix();
+	  //proj matrix
+	  Matrix<double,3,6> projMat=computeLineProjectionMatrix(computeProjectionMatrix(g_camera_matrix, tr ));
+
+
+
+
+	  Vector6d est =l2->estimate();
+	  //cout << l2->estimate() << "line with id " << id() << endl;
+	  est.normalize();
+	  Vector3d estimProj=projMat*est;
+
+	  //cout << tr << "from plucker : " << id() << endl;
+
+	  //cout << l2->estimate() << " <<>> " << estimProj << endl;
+	  double estimNorm=estimProj.norm();
+
+	  if(estimNorm>0.0000000000000000000000000000000000000000000000000000000000001){
+		  estimProj.normalize();
+		  obsVec.normalize();
+	  }
+
+
+	  //cout << estimProj << " estim<<>>obs " << obsVec << endl;
+
+
+
+
+	  if(obsVec(2)*estimProj(2)<0)
+	 	changeSigns(obsVec);
+
+	  _error= estimNorm*(estimProj-obsVec);
+
+//	  if(l2->id()==1)
+//		  cout << "Error = " << _error.norm() << endl;
+
+	  //cout  <<" it is hessian ; " <<  _hessian << "it is b : " << _b << endl;
+
+	 // cout << "err = " << _error << ", norm : " << _error.norm() << endl;
+////	  Matrix<double, 4, 4> obsPlueckerMatrix;
+////	  obsPlueckerMatrix = toPlueckerMatrix(obsVec);
+////	  obsPlueckerMatrix.normalize(); //why not normalize vector? is faster
+//
+//	  Matrix<double, 4, 4> estimationPlueckerMatrix;
+//	  Vector6d estim = l2->estimate();
+//	  estim.normalize();
+//	  estimationPlueckerMatrix = toPlueckerMatrix(estim);
+////	  estimationPlueckerMatrix.normalize();
+//
+//	  Matrix<double, 4, 4> tmpMatrix;
+//	  tmpMatrix = v1->estimate().matrix() * estimationPlueckerMatrix * v1->estimate().matrix().transpose();
+////	  tmpMatrix.normalize();
+//
+//	  //todo: check if error is zero when estimation and observation are the same
+//	  Vector6d tmpVec = toPlueckerVec(tmpMatrix);
+//	  tmpVec.normalize();
+//	  _error = tmpVec - obsVec;
 	  //cout<<"G2oEdgeSE3PlueckerLine::computeError: "<<_error<<endl;
 }
 

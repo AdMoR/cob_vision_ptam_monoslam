@@ -31,6 +31,7 @@
 
 using namespace ScaViSLAM;
 
+
 struct Views
 {
   pangolin::OpenGlRenderState pangolin_cam;

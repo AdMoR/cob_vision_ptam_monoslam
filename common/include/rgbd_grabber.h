@@ -73,7 +73,7 @@ private:
   CVD::Image<CVD::byte > img_bw_;
   CVD::Image<CVD::Rgb<CVD::byte> > img_rgb_;
   void kinect_callback(const sensor_msgs::ImageConstPtr& image_rgb, const stereo_msgs::DisparityImageConstPtr& image_depth);
-//  void kinect_callback(const sensor_msgs::ImageConstPtr& image_rgb,const sensor_msgs::ImageConstPtr& image_depth);
+  //void kinect_callback(const sensor_msgs::ImageConstPtr& image_rgb,const sensor_msgs::ImageConstPtr& image_depth);
   void initTracker(const CVD::ImageRef & size);
   static void GUICommandCallBack(void* ptr, std::string sCommand, std::string sParams);
 

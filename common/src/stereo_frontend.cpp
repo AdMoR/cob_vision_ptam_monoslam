@@ -32,6 +32,8 @@
 #include "quadtree.h"
 #include "pose_optimizer.h"
 
+Eigen::Matrix<double,3,3> g_camera_matrix;
+
 namespace ScaViSLAM
 {
 using namespace VisionTools;

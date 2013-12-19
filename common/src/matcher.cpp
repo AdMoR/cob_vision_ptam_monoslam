@@ -24,15 +24,27 @@
 #include <fstream>
 #include <visiontools/accessor_macros.h>
 
+#include "utilities.h"
 #include "data_structures.h"
 #include "homography.h"
 #include "keyframes.h"
 #include "transformations.h"
+#include <iostream>
+#include <Eigen/Dense>
+using namespace std;
+using namespace Eigen;
+
+extern Matrix<double,3,3> g_camera_matrix;
+extern int KF_NUMBER;
 
 
 
 
 //TODO: improve sub-pixel using LK tracking or ESM
+
+
+
+
 namespace ScaViSLAM
 {
 
@@ -315,43 +327,63 @@ bool GuidedMatcher<Camera>
 //by using a multimap, the container is ordered in ascending order by the distance. Since it is possible that two different
 //lines have the same distance, a map or a set could not be used, since there the key is unique
 template <class Camera>
-std::multimap<double,Line> GuidedMatcher<Camera>::findNearestLinesOnCurrentFrameOrderedByDistance(Vector3d line, std::vector<Line> &linesOnCurrentFrame,float err, bool debug)
+std::multimap<double,Line> GuidedMatcher<Camera>::findNearestLinesOnCurrentFrameOrderedByDistance(Vector3d line, std::vector<Line> &linesOnCurrentFrame,float err,Vector2d reference_point, bool debug)
 {
 	std::multimap<double,Line> nearestLines;
 	double projectedtLineMag=0;
 	double projectedLineAng=0;
 	cartesianToPolar(line, projectedtLineMag,projectedLineAng);
+	Vector2d found_point;
+	double angle_weight=5;
+
+	if (debug)
+		cout << "tracked line : " << projectedtLineMag << " " << projectedLineAng << endl;
 
 	for (auto it = linesOnCurrentFrame.begin(); it != linesOnCurrentFrame.end(); ++it)
 	{
-
-
 		double currentLineMag=0;
 		double currentLineAng=0;
-		if (debug)
-			cout << "candidate line : ";
+		double dist=1000000;
 		cartesianToPolar((*it).linearForm, currentLineMag, currentLineAng);
-		//cv::cartToPolar((*it).linearForm[0], (*it).linearForm[1], mag, angle, true);
-		double polarDist = computePolarDistance(projectedtLineMag, projectedLineAng, currentLineMag, currentLineAng, 5);
-		if (debug)
-			cout << " with err : " << polarDist << endl ;
-		if(polarDist <= (double)err)
-		{
-			nearestLines.insert( std::pair<double,Line>(polarDist, (*it))); //should be ordered
-		}
-//		else
-//			cout << polarDist << "polar dist val" << endl;
+		double dang=min(abs(currentLineAng-projectedLineAng),(double)abs(int(currentLineAng+10)%180-int(projectedLineAng+10)%180));
 
-//		if((*it).linearForm[2]<0.0)
-//		{
-//			changeSigns((*it).linearForm);
-//		}
-//			//the euclidean distance is not a good similarity measure, instead of using a fixed threshold, we take the nearest 3 candidate lines
-//			//todo: implement a better similarity measure for lines
-//	//		if (debug)cout<<"line: "<<100000*(*it).linearForm[0]<< ", "<<100000*(*it).linearForm[1]<<", "<<100000*(*it).linearForm[2]<<endl;
-//			double unscaled_d = sqrt( pow((line[0]-(*it).linearForm[0]), 2) + pow((line[1]-(*it).linearForm[1]),2) + pow((line[2]-(*it).linearForm[2]),2));
-//	//		if (debug) cout<<"unscaled distance: "<< unscaled_d<<endl;
-//			nearestLines.insert( std::pair<double,Line>(unscaled_d, (*it))); //should be ordered
+		if(reference_point(0)>0 &&reference_point(0)<640 && reference_point(1)>0 && reference_point(1)<480 && dang<10){
+			//Use the new method
+			Vector2d start=Vector2d(it->startingPoint2d.x,it->startingPoint2d.y),end=Vector2d(it->endPoint2d.x,it->endPoint2d.y);
+
+			dist=getLineDistance(start,end,line,reference_point, found_point)+angle_weight*dang;
+			if(debug)
+				cout << "candidate line : " << currentLineMag << " "<< currentLineAng << " "<< "with error : " << dist << " = " << getLineDistance(start,end,line,reference_point, found_point)<< " + " << angle_weight*dang  << endl;
+		}
+		else{
+
+			//If we cannot use the spatial fair method, we use the polar one
+			if (debug)
+					cout << "candidate line : "<< currentLineMag << " " << currentLineAng << " ";
+			//cv::cartToPolar((*it).linearForm[0], (*it).linearForm[1], mag, angle, true);
+			dist = computePolarDistance(projectedtLineMag, projectedLineAng, currentLineMag, currentLineAng, angle_weight);
+			if (debug)
+				cout << " with err : " << dist << endl ;
+		}
+
+		if(dist <= (double)err)
+		{
+			nearestLines.insert( std::pair<double,Line>(dist, (*it))); //should be ordered
+		}
+	//		else
+	//			cout << polarDist << "polar dist val" << endl;
+
+	//		if((*it).linearForm[2]<0.0)
+	//		{
+	//			changeSigns((*it).linearForm);
+	//		}
+	//			//the euclidean distance is not a good similarity measure, instead of using a fixed threshold, we take the nearest 3 candidate lines
+	//			//todo: implement a better similarity measure for lines
+	//	//		if (debug)cout<<"line: "<<100000*(*it).linearForm[0]<< ", "<<100000*(*it).linearForm[1]<<", "<<100000*(*it).linearForm[2]<<endl;
+	//			double unscaled_d = sqrt( pow((line[0]-(*it).linearForm[0]), 2) + pow((line[1]-(*it).linearForm[1]),2) + pow((line[2]-(*it).linearForm[2]),2));
+	//	//		if (debug) cout<<"unscaled distance: "<< unscaled_d<<endl;
+	//			nearestLines.insert( std::pair<double,Line>(unscaled_d, (*it))); //should be ordered
+
 	}
 //	std::multimap<double,Line>::iterator it = std::next(nearestLines.begin(),3);
 //	nearestLines.erase ( it, nearestLines.end() );
@@ -450,6 +482,229 @@ Line GuidedMatcher<Camera>::findMatchedLineWithSmallestError(const std::multimap
 	return (*it).second.first;
 }
 
+
+template <class Camera>
+void GuidedMatcher<Camera>::post_matching(tr1::unordered_map<int,Line> &tracked_lines,
+										std::vector<Line> linesOnCurrentFrame,
+										map<int,int>& matchedline_id ,
+										set<int>& currentLineLocalId,
+										 map<int,Vector3d>& projection_map,
+										bool color_mode,
+										vector<pair<int,cv::Scalar> >& colormap,
+										Mat *curFrameRGB,
+										int KF_NUMBER,
+										int line_num,
+										int line_tracked,
+										bool one_line_track,
+										bool verbose,
+										Matrix<double,3,4> projectionsMatrix,
+										SE3 T_actkey_from_w){
+
+	for(auto tracked_lines_iter=tracked_lines.begin();tracked_lines_iter!=tracked_lines.end();tracked_lines_iter++){
+
+
+
+					Line matchedLine;
+					bool matched=false;
+
+					for(auto ptr=linesOnCurrentFrame.begin();ptr!=linesOnCurrentFrame.end();ptr++){
+						if(matchedline_id.find(ptr->global_id)->second==tracked_lines_iter->second.global_id){
+							matchedLine=(*ptr);
+							matched=true;
+							break;
+						}
+					}
+
+					if(matched=true){
+						 Vector3d projectedHomogeneousLine2=projection_map.find(tracked_lines_iter->second.global_id)->second;
+						(*tracked_lines_iter).second.consecutive_frame++;
+
+						if(!one_line_track && verbose)
+							cout << "match" << endl;
+
+						int pos = 0;
+						for (auto linesOnCurrentFrame_iter = linesOnCurrentFrame.begin(); linesOnCurrentFrame_iter != linesOnCurrentFrame.end(); ++linesOnCurrentFrame_iter)
+						{
+							if (equalVectors3d((*linesOnCurrentFrame_iter).linearForm, matchedLine.linearForm))
+							{
+								currentLineLocalId.insert(pos);
+								break;
+							}
+							++pos;
+						}
+
+						//Assign the same color between the tracked line and his corresponding match
+						cv::Scalar color;
+						if(color_mode){
+							for(unsigned int i=0;i<linesOnCurrentFrame.size();i++){
+								if(colormap[i].first==matchedLine.global_id)
+									color=colormap[i].second;
+							}
+							cv::line( *curFrameRGB, matchedLine.startingPoint2d,matchedLine.endPoint2d, color, 2, 7 );
+						}
+
+						//Display of the projected tracked line
+						if(one_line_track){
+							 if(line_num==line_tracked){
+								 if(tracked_lines_iter->second.consecutive_frame>=15 && (KF_NUMBER-tracked_lines_iter->second.Kf_count)>=3)
+								 //cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
+									 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
+								 else
+									 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
+							 }
+						}
+						else{
+							if(color_mode)
+								//cv::line( *curFrameRGB, begin, end,color, 2, 8);
+								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", color, false);
+							else{
+								//cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
+								if(tracked_lines_iter->second.consecutive_frame>15){
+									if(tracked_lines_iter->second.global_id==1){
+										drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 0, 0), false);
+
+									}
+									else
+										drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
+								}
+								else
+									drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
+							}
+						}
+
+
+						//Update od the line coord
+						ADD_TO_MAP_LINE((*tracked_lines_iter).first, (*tracked_lines_iter).second, &tracked_lines); //reset counter
+						(*tracked_lines_iter).second.startingPoint2d=matchedLine.startingPoint2d;
+						(*tracked_lines_iter).second.endPoint2d=matchedLine.endPoint2d;
+						(*tracked_lines_iter).second.pluckerLinesObservation = matchedLine.pluckerLinesObservation;
+						(*tracked_lines_iter).second.T_frame_w=matchedLine.T_frame_w;
+							//(*tracked_lines_iter).second.anchor_id=matchedLine.anchor_id;
+							//}
+						if((*tracked_lines_iter).second.global_id==1)
+							cout << (*tracked_lines_iter).second.consecutive_frame << " consecutive frame for 1" << endl;
+
+						if((*tracked_lines_iter).second.consecutive_frame==15){
+							//Get the equation of the planes in the 2 frames
+							if(line_num==line_tracked && one_line_track && verbose)
+								cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<BOUM>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << tracked_lines_iter->second.consecutive_frame << " " << tracked_lines_iter->second.Kf_count << endl;
+							Vector4d plane1,plane2;
+							if(tracked_lines_iter->second.global_id==1 && verbose){
+								get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector,true);
+								get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector,true);
+							}
+							else{
+								get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector);
+								get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector);
+							}
+
+							//Get the plücker coordinates
+							Vector6d plucker_coord;
+							computePluckerFromPlanes(plane1,plane2,(*tracked_lines_iter).second.originalT.matrix(),(matchedLine.T_frame_w*T_actkey_from_w).matrix(),plucker_coord,(*tracked_lines_iter).second.global_id);
+							plucker_coord.normalize();
+							(*tracked_lines_iter).second.optimizedPluckerLines=plucker_coord;
+
+							//if((*tracked_lines_iter).second.global_id==1){
+							Vector3d l1 =(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.optimizedPluckerLines,l2=(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.GTPlucker;
+							pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+							pluckerToFile((*tracked_lines_iter).second.GTPlucker,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+							pluckerToFile(l1,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+							pluckerToFile(l2,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+								//}
+						}
+
+
+
+						//Update the SSD once a while
+						if(((*tracked_lines_iter).second.consecutive_frame%10)==0){ //Could switch with a modulo to get hw many consec frames were tracked
+							if((one_line_track && line_num==line_tracked)&&verbose)
+								cout << "UPDATE SSD" << endl;
+							(*tracked_lines_iter).second.descriptor=matchedLine.descriptor;
+							}
+
+
+						if(one_line_track && line_num==line_tracked){
+						//if((*tracked_lines_iter).second.global_id==1){
+						  cout << "Tracked line id : " << (*tracked_lines_iter).second.global_id << endl;
+						  auto ptr=tracked_lines_iter;
+						  pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id);
+						  cout  << (*ptr).first << " pluckercoord opt : " << (*ptr).second.optimizedPluckerLines[0] << " " << (*ptr).second.optimizedPluckerLines[1] << " " << (*ptr).second.optimizedPluckerLines[2] << " " << (*ptr).second.optimizedPluckerLines[3] << " " << (*ptr).second.optimizedPluckerLines[4] << " " << (*ptr).second.optimizedPluckerLines[5] << endl;
+						  }
+					}
+					else{
+
+					}
+	}
+
+}
+
+
+template <class Camera>
+void GuidedMatcher<Camera>::findBestConfiguration(tr1::unordered_map<int,Line> &tracked_lines,
+												  std::vector<Line> &linesOnCurrentFrame,
+											      tr1::unordered_map<int,std::multimap<double,std::pair<Line,double> > > & candidates ,
+											      map<int,int>& best_matched,
+												  double max_error=30){
+
+	//Vector containing id of the lines having common candidates
+	vector<pair<int,int> > conflicts;
+
+	//Parameters
+	double best_error=1000000000;
+	//map<int,int> best_matched;
+
+	for(auto ptr=tracked_lines.begin();ptr!=tracked_lines.end();ptr++){
+		for(auto ptr2=ptr;ptr2!=tracked_lines.end();ptr2++){
+			if(ptr->first!=ptr2->first){
+				//First find conflicts
+				findLineConflicts(ptr->first,ptr2->first,candidates.find(ptr->first)->second,candidates.find(ptr2->first)->second,conflicts);
+			}
+		}
+	}
+
+	//Number of possible permutations in the order of tracked lines
+	int n=min(pow(2,conflicts.size()),pow(2,10));
+	cout << "we have " << n << " conflicts" << endl;
+
+
+	for(unsigned int k=0;k<n;k++){
+		double gerror=0;
+		vector<pair<int,Line> > permuted_lines;
+		map<int,int> matched; //Init the matched vector right after ( candidate line id , trackedline id=-1(not matched) )
+		for(auto it=linesOnCurrentFrame.begin();it!=linesOnCurrentFrame.end();it++){matched.insert(make_pair(it->global_id,-1));};
+		createPermutedVector(tracked_lines,permuted_lines,k,conflicts);
+
+		for(auto ptr=permuted_lines.begin();ptr!=permuted_lines.end();ptr++){
+			auto matchedLines=candidates.find(ptr->first)->second;
+			if (matchedLines.size() > 0)
+				{
+					auto it = matchedLines.begin();
+					while(matched.find(it->second.first.global_id)->second!=-1 && it!=matchedLines.end())
+						it++;
+					if(it!=matchedLines.end()){
+						gerror+=it->first;
+						matched.find(it->second.first.global_id)->second=ptr->second.global_id;
+					}
+					else
+						gerror+=max_error+5; //  /!\ should be discussed /!\/
+
+				}
+			else
+				gerror+=max_error+5; // /!\ should be discussed /!\/
+		}
+		if(gerror<best_error){
+			//do stuff
+			best_error=gerror;
+			best_matched=matched;
+		}
+	}
+
+
+
+}
+
+
+
 //@fixme: method too long
 //@fixme: there is a method for accesing T_cur_from_actkey...
 template <class Camera>
@@ -459,24 +714,44 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 										int actkey_id,
 										const ALIGNED<FrontendVertex>::int_hash_map & vertex_map,
 										const Matrix<double,3,3> camera_matrix,
-										cv::Mat *curFrameRGB, const vector<Vector3d> & edges,
+										cv::Mat *curFrameRGB,
+										const vector<Vector3d> & edges,
 										MonoFrontend *monoFrontednPtr,
 										AddToOptimzerPtr & to_optimizer,
 										std::vector<int> & localIDsofNewLinesToBeAdded,
-										SE3 &T_cur_from_w)
+										SE3 &T_cur_from_w,
+										int frame_id)
 {
 
-	bool display=false;
-	bool one_line_track=true;
+
+	bool display=true;
+	bool verbose=false;
+	bool one_line_track=false;
 	int line_tracked=0;
 	bool color_mode=false;
+	bool mono_mode=true;
+	bool matchmap_is_active=false;
 
 
 
+	//Structure containing candidate lines for each tracked line
+	 tr1::unordered_map<int,std::multimap<double,std::pair<Line,double> > > candidates;
+
+	 //Match map between tracked lines id and lines on frame id
+	 map<int,int> matchedline_id;
+
+	 //Keep track of the projection obtained
+	 map<int,Vector3d> projection_map;
+
+	 //Transform
 	  SE3 T_actkey_from_w    = GET_MAP_ELEM(actkey_id, vertex_map).T_me_from_w;
 	  T_cur_from_w = T_cur_from_actkey*T_actkey_from_w; //Position wo  sich die Kamera in Weltkoordinaten befindet nach dem Optischen FLuß
 
+	  //Current camera intrinsic matrix
+	  g_camera_matrix=camera_matrix;
 
+	  //Max accepted error during matching
+	  float polar_err=30;
 
 	  //Build color map of candidate lines
 	  vector<pair<int,cv::Scalar>> colormap;
@@ -500,6 +775,7 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 
 
 	  //Projiziere diese ins aktuelle Kamerabild, gucken ob die drin sind, falls nicht nicht weitermachen
+	 //cout << T_cur_from_w.matrix() << endl;
 	 Matrix<double, 3, 4> projectionsMatrix = computeProjectionMatrix(camera_matrix, T_cur_from_w.matrix() );
 	 int line_num=0;
 	  cout<<" size of linesOnCurrentFrame : "<<linesOnCurrentFrame.size()<<endl;
@@ -511,27 +787,59 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 	  set<int> currentLineLocalId;
 	  for (auto tracked_lines_iter = tracked_lines.begin(); tracked_lines_iter != tracked_lines.end(); ++tracked_lines_iter)
 	  {
+		  map<int,double> extinction;
+		  extinction.insert(make_pair(0,linesOnCurrentFrame.size()));//0 total number of lines
+		  extinction.insert(make_pair(1,0)); //1 : candidate too far
+		  extinction.insert(make_pair(2,0)); //2 : bad ssd
+		  extinction.insert(make_pair(3,0)); //3 : bad size
+		  extinction.insert(make_pair(4,0)); //4 : outside frame
+		  extinction.insert(make_pair(5,0)); //5 : 'incorrectness' try to see how close to the acceptance limit we are
+
+		  if(one_line_track && line_num==line_tracked && verbose)
+			  cout << "Following line : " << tracked_lines_iter->second.global_id << endl;
 
 		  cv::Point begin,end;
-		  Vector3d transformedAndProjectedStartingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.startingPoint3d);
-		  Vector3d transformedAndProjectedEndingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.endPoint3d);
-		  transformedAndProjectedStartingPoint[0] = transformedAndProjectedStartingPoint[0]/transformedAndProjectedStartingPoint[2];
-		  transformedAndProjectedStartingPoint[1] = transformedAndProjectedStartingPoint[1]/transformedAndProjectedStartingPoint[2];
-		  transformedAndProjectedEndingPoint[0] = transformedAndProjectedEndingPoint[0]/transformedAndProjectedEndingPoint[2];
-		  transformedAndProjectedEndingPoint[1] = transformedAndProjectedEndingPoint[1]/transformedAndProjectedEndingPoint[2];
+		  if(!mono_mode){
 
-		  //Project the tracked line in the image
-		  begin=cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]);
-		  end=cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]);
+			  Vector3d transformedAndProjectedStartingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.startingPoint3d);
+			  Vector3d transformedAndProjectedEndingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.endPoint3d);
+			  transformedAndProjectedStartingPoint[0] = transformedAndProjectedStartingPoint[0]/transformedAndProjectedStartingPoint[2];
+			  transformedAndProjectedStartingPoint[1] = transformedAndProjectedStartingPoint[1]/transformedAndProjectedStartingPoint[2];
+			  transformedAndProjectedEndingPoint[0] = transformedAndProjectedEndingPoint[0]/transformedAndProjectedEndingPoint[2];
+			  transformedAndProjectedEndingPoint[1] = transformedAndProjectedEndingPoint[1]/transformedAndProjectedEndingPoint[2];
 
-		  //Display all the tracked lines in purple
-		  //cv::line( *curFrameRGB, cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]), cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]), cv::Scalar(200,50,100), 8, 8 );
+			  //Project the tracked line in the image
+			  begin=cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]);
+			  end=cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]);
+		  }
+		  else{
+			  begin=tracked_lines_iter->second.startingPoint2d;
+			  end=tracked_lines_iter->second.endPoint2d;
+		  }
+
+		  Vector3d projectedHomogeneousLine2;
+		  if((*tracked_lines_iter).second.consecutive_frame>=15 && (KF_NUMBER-tracked_lines_iter->second.Kf_count)>=3){
+			  //Display all the tracked lines in purple
+			  //cv::line( *curFrameRGB, cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]), cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]), cv::Scalar(200,50,100), 8, 8 );
 
 
-		 Vector3d projectedHomogeneousLine2 = computeLineProjectionMatrix2(projectionsMatrix, toPlueckerMatrix((*tracked_lines_iter).second.optimizedPluckerLines));
+			 projectedHomogeneousLine2 = computeLineProjectionMatrix2(projectionsMatrix, toPlueckerMatrix((*tracked_lines_iter).second.optimizedPluckerLines));
+			 projectedHomogeneousLine2.normalize();
 
 
-		 projectedHomogeneousLine2.normalize();
+			 if(one_line_track && line_num==line_tracked && verbose)
+				 cout << "2d form : " << projectedHomogeneousLine2 << " <> " << tracked_lines_iter->second.pluckerLinesObservation << " <> " << tracked_lines_iter->second.linearForm << endl;
+		  }
+		  else{
+			 projectedHomogeneousLine2 = (*tracked_lines_iter).second.pluckerLinesObservation;
+			 //projectedHomogeneousLine2.normalize();
+		  }
+
+		  projection_map.insert(make_pair(tracked_lines_iter->second.global_id,projectedHomogeneousLine2));
+
+		Vector2d reference_point;
+		projectReferencePoint(projectedHomogeneousLine2,tracked_lines_iter->second.rtheta,reference_point);
+
 		 if (projectedHomogeneousLine2[2] < 0.0)
 		 {
 			changeSigns(projectedHomogeneousLine2);
@@ -549,68 +857,95 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 		 {
 
 			 //Define the error for the findNearest func
-			 float polar_err;
+
 			 if(one_line_track)
-				 polar_err=50;
+				 polar_err=30;
 			 else
-				 polar_err=15;
+				 polar_err=30;
 
-			 std::multimap<double,Line> nearestLines = findNearestLinesOnCurrentFrameOrderedByDistance(projectedHomogeneousLine2, linesOnCurrentFrame,polar_err, false);
+			 std::multimap<double,Line> nearestLines;
+			 if(one_line_track && line_num==line_tracked && verbose)
+				 nearestLines = findNearestLinesOnCurrentFrameOrderedByDistance(projectedHomogeneousLine2, linesOnCurrentFrame,polar_err,reference_point, true);
+			 else
+				 nearestLines = findNearestLinesOnCurrentFrameOrderedByDistance(projectedHomogeneousLine2, linesOnCurrentFrame,polar_err,reference_point, false);
 
-			 if(one_line_track &&line_num==line_tracked){
-				 cout << "tracked line plucker : " << (*tracked_lines_iter).second.optimizedPluckerLines[0] << " "  << (*tracked_lines_iter).second.optimizedPluckerLines[1] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[2] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[3] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[4] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[5] << endl;
-				 for(auto ptr=nearestLines.begin();ptr!=nearestLines.end();ptr++){
-					 cout << "error : " << (*ptr).first << " pluckercoord : " << (*ptr).second.optimizedPluckerLines[0] << " " << (*ptr).second.optimizedPluckerLines[1] << " " << (*ptr).second.optimizedPluckerLines[2] << " " << (*ptr).second.optimizedPluckerLines[3] << " " << (*ptr).second.optimizedPluckerLines[4] << " " << (*ptr).second.optimizedPluckerLines[5] << endl;
-				 }
-			 }
+//			 if(one_line_track &&line_num==line_tracked){
+//				 cout << "tracked line plucker : " << (*tracked_lines_iter).second.optimizedPluckerLines[0] << " "  << (*tracked_lines_iter).second.optimizedPluckerLines[1] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[2] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[3] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[4] << " " << (*tracked_lines_iter).second.optimizedPluckerLines[5] << endl;
+//				 for(auto ptr=nearestLines.begin();ptr!=nearestLines.end();ptr++){
+//					 cout << "error : " << (*ptr).first << " pluckercoord : " << (*ptr).second.optimizedPluckerLines[0] << " " << (*ptr).second.optimizedPluckerLines[1] << " " << (*ptr).second.optimizedPluckerLines[2] << " " << (*ptr).second.optimizedPluckerLines[3] << " " << (*ptr).second.optimizedPluckerLines[4] << " " << (*ptr).second.optimizedPluckerLines[5] << endl;
+//				 }
+//			 }
 
 
 			 if(one_line_track){
 				 if(line_num==line_tracked){
 					 for(auto lineptr=nearestLines.begin();lineptr!=nearestLines.end();++lineptr){
-						 cv::line( *curFrameRGB, (*lineptr).second.startingPoint2d,(*lineptr).second.endPoint2d, cv::Scalar(0,255-floor(255./50.*((*lineptr).first)),floor(255./50.*((*lineptr).first))), 2, 7 );
+						 cv::line( *curFrameRGB, (*lineptr).second.startingPoint2d,(*lineptr).second.endPoint2d, cv::Scalar(0,255-floor(255./polar_err*((*lineptr).first)),floor(255./polar_err*((*lineptr).first))), 2, 7 );
 					 }
 				 }
 			 }
 
+			 if(one_line_track && line_num==line_tracked){
+				 Point p=Point(reference_point(0),reference_point(1));
+				 int ididi=tracked_lines_iter->second.global_id;
+				 cross(*curFrameRGB,p,Scalar((ididi)%255,(ididi+100)%255,(ididi+200)%255));
+			 }
+
+			 //Numbers of lines too far away from the tracked line
+			 extinction.find(1)->second=linesOnCurrentFrame.size()-nearestLines.size();
 
 			 for( auto nearest_lines_iter = nearestLines.begin(); nearest_lines_iter!= nearestLines.end(); ++nearest_lines_iter)
 			 {
-				 //drawLine((*nearest_lines_iter).second.linearForm,*curFrameRGB, "lines",cv::Scalar(255,0,255), false);
-				 //vector<pair<int,int>> pixelsOnLine = MonoFrontend::lineBresenham(intersec1[0], intersec1[1], intersec2[0], intersec2[1]);
-				 //now compare descriptors of nearest lines
-				 //std::vector<int> descriptor = monoFrontednPtr->computeLineDescriptor(intersec1[0], intersec1[1], intersec2[0], intersec2[1], pixelsOnLine);
-				 double normalizedError;
+				double normalizedError;
 				 //if (matchTwoLines((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, true))
-				 if (matchTwoLinesSSD((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, false) && ((matchmap.find((*nearest_lines_iter).second.global_id))->second==-1) )
+				 if (matchTwoLinesSSD((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, false,30000)  && (!matchmap_is_active ||(matchmap.find((*nearest_lines_iter).second.global_id))->second==-1) )
 				 {
-					  //cout<<" after matched method normalizedError: "<<normalizedError<<endl;
 					  matchedLines.insert(std::pair<double,std::pair<Line,double>>((*nearest_lines_iter).first,std::pair<Line,double>((*nearest_lines_iter).second, normalizedError)));
-					 //drawLine((*iter).linearForm,*curFrameRGB, "match",cv::Scalar(255,255,255), false);
+					  if((!one_line_track || line_num==line_tracked)&&verbose)
+						  cout << "line kept" <<endl;
 				 }
 				 else
 				 {
 					 int maxSize = max((*tracked_lines_iter).second.descriptor.size(), (*nearest_lines_iter).second.descriptor.size());
 					 int minSize = min((*tracked_lines_iter).second.descriptor.size(), (*nearest_lines_iter).second.descriptor.size());
 
-					 if(!((maxSize/ minSize)>2.0))
+					 if(!((maxSize/ minSize)>2.0) && matchmap_is_active && (!matchmap_is_active || (matchmap.find((*nearest_lines_iter).second.global_id))->second==-1))
 					 {
-
+						 //Count rejections because of SSD
+						extinction.find(2)->second+=1;
+						double inco=0.5*((1-nearest_lines_iter->first/polar_err)+30000./normalizedError);
+						if(extinction.find(5)->second<inco)
+							extinction.find(5)->second=inco;
 						 //Display in red the possible match
 						 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,255), 2, 8 );
-						 cout << "SSD are different !" << endl;
+						 if((!one_line_track || line_num==line_tracked) && verbose)
+							 cout << "SSD are different ! " << nearest_lines_iter->first << " " << normalizedError << endl;
 					 }
 					 else{
-						 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,0), 2, 8 );
-						 cout << "size too different !" << endl;
-					 }
+						 if(!matchmap_is_active || ((matchmap.find((*nearest_lines_iter).second.global_id))->second==-1)){
+							 //Count rejections because of bad size
+							extinction.find(3)->second+=1;
 
+							 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,0), 2, 8 );
+							 if((!one_line_track || line_num==line_tracked) && verbose )
+								 cout << "size too different !" << endl;
+						 	}
+
+						 else{
+							 if((!one_line_track || line_num==line_tracked) && verbose )
+								 cout << "already assigned to another line !" << endl;
+						 }
+					 }
 				 }
 
 			 }
+			 candidates.insert(make_pair(tracked_lines_iter->second.global_id,matchedLines));
 			 if (matchedLines.size() > 0)
 			{
-				 cout << "match" << endl;
+				 (*tracked_lines_iter).second.previousTransform.insert(make_pair(frame_id,T_cur_from_w.matrix()));
+				 (*tracked_lines_iter).second.consecutive_frame++;
+				 if(!one_line_track && verbose)
+					 cout << "match" << endl;
 				Line matchedLine = findMatchedLineWithSmallestError(matchedLines, false);
 				matched = true;
 				//cout << (*tracked_lines_iter).second.global_id << "tracked line id <<>> matched line id" << matchedLine.global_id << endl;
@@ -629,7 +964,7 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 					++pos;
 				}
 
-				//drawLine(matchedLine.linearForm, *curFrameRGB, "lines", cv::Scalar(255, 255, 255), false);
+
 
 				//Remove the best match from the available lines by tagging it with the tracked line id
 				(matchmap.find(matchedLine.global_id))->second=(*tracked_lines_iter).second.global_id;
@@ -644,55 +979,174 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 					cv::line( *curFrameRGB, matchedLine.startingPoint2d,matchedLine.endPoint2d, color, 2, 7 );
 				}
 
-
-
-
-
 				//Display of the projected tracked line
 				if(one_line_track){
 					 if(line_num==line_tracked){
-						 cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
+						 if(tracked_lines_iter->second.consecutive_frame>=15 && (KF_NUMBER-tracked_lines_iter->second.Kf_count)>=3)
+						 //cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
+							 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
+						 else
+							 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
 					 }
 				}
 				else{
 					if(color_mode)
-						cv::line( *curFrameRGB, begin, end,color, 2, 8);
-					else
-						cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
+						//cv::line( *curFrameRGB, begin, end,color, 2, 8);
+						drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", color, false);
+					else{
+						//cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
+						if(tracked_lines_iter->second.consecutive_frame>15){
+							if(tracked_lines_iter->second.global_id==1){
+								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 0, 0), false);
+
+							}
+							else
+								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
+						}
+						else
+							drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
+					}
 				}
 
 
 				//Update od the line coord
 				ADD_TO_MAP_LINE((*tracked_lines_iter).first, (*tracked_lines_iter).second, &tracked_lines); //reset counter
-				(*tracked_lines_iter).second.pluckerLinesObservation = matchedLine.pluckerLinesObservation;
+				//(*tracked_lines_iter).second.linearForm=matchedLine.linearForm;
+
+				//Update the observation depending on the mode (if the line is active it can receive the normal updates)
+				//if(!mono_mode || (*tracked_lines_iter).second.active){
+					(*tracked_lines_iter).second.startingPoint2d=matchedLine.startingPoint2d;
+					(*tracked_lines_iter).second.endPoint2d=matchedLine.endPoint2d;
+					(*tracked_lines_iter).second.pluckerLinesObservation = matchedLine.pluckerLinesObservation;
+					(*tracked_lines_iter).second.T_frame_w=matchedLine.T_frame_w;
+					//(*tracked_lines_iter).second.anchor_id=matchedLine.anchor_id;
+					//}
+				//else{
+
+					//Matrix<double, 3, 4> projectionsMatrix = computeProjectionMatrix(camera_matrix, T_cur_from_w.matrix() );
+
+					//cout << computeLineProjectionMatrix(projectionsMatrix) * (*tracked_lines_iter).second.optimizedPluckerLines.matrix() << " test val proj " << matchedLine.linearForm << endl;
+					//Add the 2d observation to the tracked line to prepare its 3D estimation
+					(*tracked_lines_iter).second.obsList.push_back(make_pair(matchedLine.linearForm,computeLineProjectionMatrix(projectionsMatrix)));
 
 
+					if((*tracked_lines_iter).second.global_id==1)
+						cout << (*tracked_lines_iter).second.consecutive_frame << " consecutive frame for 1" << endl;
+
+					if((*tracked_lines_iter).second.consecutive_frame==15){
+						//Get the equation of the planes in the 2 frames
+						if(line_num==line_tracked && one_line_track && verbose)
+							cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<BOUM>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << tracked_lines_iter->second.consecutive_frame << " " << tracked_lines_iter->second.Kf_count << endl;
+						Vector4d plane1,plane2;
+						if(tracked_lines_iter->second.global_id==1 && verbose){
+							get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector,true);
+							get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector,true);
+						}
+						else{
+							get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector);
+							get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector);
+						}
+
+						//Get the plücker coordinates
+						Vector6d plucker_coord;
+						computePluckerFromPlanes(plane1,plane2,(*tracked_lines_iter).second.originalT.matrix(),(matchedLine.T_frame_w*T_actkey_from_w).matrix(),plucker_coord,(*tracked_lines_iter).second.global_id);
+						plucker_coord.normalize();
+						(*tracked_lines_iter).second.optimizedPluckerLines=plucker_coord;
+
+
+
+						//if((*tracked_lines_iter).second.global_id==1){
+						Vector3d l1 =(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.optimizedPluckerLines,l2=(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.GTPlucker;
+						pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+						pluckerToFile((*tracked_lines_iter).second.GTPlucker,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+						pluckerToFile(l1,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+						pluckerToFile(l2,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
+						//}
+					}
+
+
+//					if((*tracked_lines_iter).second.Kf_count==OptimThres){
+//
+//						Vector3d mean=Vector3d(),var=Vector3d(),lambda=Vector3d();
+//						for(auto ptr=(*tracked_lines_iter).second.obsList.begin();ptr!=(*tracked_lines_iter).second.obsList.end();ptr++){
+//							mean+=(*ptr).first;
+//						}
+//						mean/=OptimThres;
+//						for(auto ptr=(*tracked_lines_iter).second.obsList.begin();ptr!=(*tracked_lines_iter).second.obsList.end();ptr++){
+//							Vector3d diff=(*ptr).first-mean;
+//							var+=Vector3d(diff(0)*diff(0),diff(1)*diff(1),diff(2)*diff(2));
+//						}
+//						var/=OptimThres;
+//						getMatrixPower(var,(*tracked_lines_iter).second.lambda,-0.5);
+//
+//					}
+//				//}
+
+				//Update the SSD once a while
+				if(((*tracked_lines_iter).second.consecutive_frame%10)==0){ //Could switch with a modulo to get hw many consec frames were tracked
+					if((one_line_track && line_num==line_tracked)&&verbose)
+						cout << "UPDATE SSD" << endl;
+					(*tracked_lines_iter).second.descriptor=matchedLine.descriptor;
+					}
+
+
+				if(one_line_track && line_num==line_tracked){
+				//if((*tracked_lines_iter).second.global_id==1){
+				  cout << "Tracked line id : " << (*tracked_lines_iter).second.global_id << endl;
+				  auto ptr=tracked_lines_iter;
+				  pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id);
+				  cout  << (*ptr).first << " pluckercoord opt : " << (*ptr).second.optimizedPluckerLines[0] << " " << (*ptr).second.optimizedPluckerLines[1] << " " << (*ptr).second.optimizedPluckerLines[2] << " " << (*ptr).second.optimizedPluckerLines[3] << " " << (*ptr).second.optimizedPluckerLines[4] << " " << (*ptr).second.optimizedPluckerLines[5] << endl;
+				  }
 
 			}
+
+
 			 else
 			 {
 				 if(display){
-					 begin=cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]);
-					 end=cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]);
-					 cv::line( *curFrameRGB, begin, end, cv::Scalar(0,255,0), 2, 8 );}
-				 cout << "no matched line" << endl;
+					 if(tracked_lines_iter->second.consecutive_frame>=15)
+						 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 200, 55), false);
+					 else
+						 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(100, 100, 25), false);
+					 //cv::line( *curFrameRGB, begin, end, cv::Scalar(0,200,55), 2, 8 );
+				 }
+
+				 if((!one_line_track || line_num==line_tracked)&&verbose)
+					 cout << "no matched line" << endl;
 			 }
 		 }
 		 else
 		 {
+			 //Count rejections because of wrong coord
+			 extinction.find(4)->second+=1;
 			 cout<<"line outside frame"<<endl;
+			 cout << projectedHomogeneousLine2(0) << " " << projectedHomogeneousLine2(1) << " " << projectedHomogeneousLine2(2) << " " <<endl;
 		 }
+		 // /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\
 		 if(!matched)
 		 {
 		 // line is not inside frame, or has not been found -> decrement counter or erase it?
 			 //currently only erase element if it hasn't been found 3 times in a row, to account for hough not always finding
 			 //the same lines and/or the sesnor not giving 3D information
 	     //cout<<"deleting tracked_line with id: "<<(*tracked_lines_iter).first<<" because no match was found"<<endl;
+		if((*tracked_lines_iter).second.count<=0)
+			  dumpToFile(std::to_string(tracked_lines_iter->second.global_id),extinction.find(0)->second,extinction.find(1)->second,extinction.find(2)->second,extinction.find(3)->second,extinction.find(4)->second,extinction.find(5)->second,1000000000000,"/home/rmb-am/Slam_datafiles/extinctionFile.txt");
 		 DEL_FROM_MAP_LINE((*tracked_lines_iter).first, (*tracked_lines_iter).second, &tracked_lines);
-		 }
+		 if(one_line_track && line_num==line_tracked && (*tracked_lines_iter).second.count==0)
+			 cout << "ERASING LINE !!!!!" << endl;
 
+		 }
+		 // /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\/
 		 ++line_num;
 	  }
+
+//	  cout << "start" << endl;
+//	  findBestConfiguration(tracked_lines,linesOnCurrentFrame,candidates,matchedline_id,polar_err);
+//	  cout << "middle" << endl;
+//	  post_matching(tracked_lines,linesOnCurrentFrame,matchedline_id,currentLineLocalId, projection_map,color_mode,colormap,curFrameRGB,KF_NUMBER,line_num,line_tracked,one_line_track,verbose,projectionsMatrix,T_actkey_from_w);
+//	  cout << "end" << endl;
+
+
 
 
 	  std::vector<int>::iterator it;
@@ -704,17 +1158,18 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 	  std::set_difference (linesIdOnCurrentFrame.begin(), linesIdOnCurrentFrame.end(), currentLineLocalId.begin(), currentLineLocalId.end(),  std::inserter(localIDsofNewLinesToBeAdded, localIDsofNewLinesToBeAdded.end()));
 	   //new lines are only added when a new keyframe is added
 
-	  for(auto ptr=matchmap.begin();ptr!=matchmap.end();ptr++){
-			  if((*ptr).second==-1){
-				  for(auto it=linesOnCurrentFrame.begin();it!=linesOnCurrentFrame.end();it++){
-					  if((*it).global_id==(*ptr).first){
-						  if(display)
-							  cv::line( *curFrameRGB, (*it).startingPoint2d, (*it).endPoint2d, cv::Scalar(0,0,255), 2, 8 );
+	  if(matchmap_is_active){
+		  for(auto ptr=matchmap.begin();ptr!=matchmap.end();ptr++){
+				  if((*ptr).second==-1){
+					  for(auto it=linesOnCurrentFrame.begin();it!=linesOnCurrentFrame.end();it++){
+						  if((*it).global_id==(*ptr).first){
+							  if(display)
+								  cv::line( *curFrameRGB, (*it).startingPoint2d, (*it).endPoint2d, cv::Scalar(0,0,255), 2, 8 );
+						  }
 					  }
 				  }
-			  }
-
-		  }
+		  	  }
+	  }
 
 	 	to_optimizer->tracked_lines=tracked_lines;
 	 	cv::imshow("matches", *curFrameRGB);
@@ -827,7 +1282,7 @@ bool GuidedMatcher<Camera>::matchTwoLines(std::vector<int> descriptor1, std::vec
 }
 
 template <class Camera>
-bool GuidedMatcher<Camera>::matchTwoLinesSSD(std::vector<int> descriptor1, std::vector<int> descriptor2, double &normalizedError, bool debug)
+bool GuidedMatcher<Camera>::matchTwoLinesSSD(std::vector<int> descriptor1, std::vector<int> descriptor2, double &normalizedError, bool debug,double error_thr=21000)
 {
 	int maxSize = max(descriptor1.size(), descriptor2.size());
 	int minSize = min(descriptor1.size(), descriptor2.size());
@@ -926,7 +1381,7 @@ bool GuidedMatcher<Camera>::matchTwoLinesSSD(std::vector<int> descriptor1, std::
 //		cout << "hammingErrors[" << index << "]: " << hammingErrors[index] << " normalized: " << normalized1 << endl;
 //	}
 	if(debug)	cout<<"normalizedError: "<<normalizedError<<endl;
-	if(normalizedError<(double)21000)
+	if(normalizedError<(double)error_thr)
 	{
 		//cout<<"same line!"<<endl;
 		return true;

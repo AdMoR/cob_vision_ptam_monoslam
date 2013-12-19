@@ -101,6 +101,33 @@ public:
                               int thr_std,
                               TrackData<Camera::obs_dim> * track_data);
 
+ static void
+ post_matching			    (tr1::unordered_map<int,Line> &tracked_lines,
+  							std::vector<Line> linesOnCurrentFrame,
+  							map<int,int>& matchedline_id ,
+  							set<int>& currentLineLocalId,
+  							map<int,Vector3d>& projection_map,
+  							bool color_mode,
+  							vector<pair<int,cv::Scalar> >& colormap,
+  							cv::Mat *curFrameRGB,
+  							int KF_NUMBER,
+  							int line_num,
+  							int line_tracked,
+  							bool one_line_track,
+  							bool verbose,
+  							Matrix<double,3,4> projectionsMatrix,
+  							SE3 T_actkey_from_w
+  							);
+
+
+  static void
+  findBestConfiguration       (tr1::unordered_map<int,Line> &tracked_lines,
+  	  	  	  	  	  	  	  std::vector<Line> &linesOnCurrentFrame,
+  							  tr1::unordered_map<int,std::multimap<double,std::pair<Line,double> > > & candidates ,
+  							  map<int,int> & best_matched,
+  							  double max_error);
+
+
   static void
   lineMatcher 				(std::vector<Line> &linesOnCurrentFrame,
 		  	  	  	  	    tr1::unordered_map<int,Line> &tracked_lines,
@@ -108,11 +135,13 @@ public:
 		  	  	  	  	  	int actkey_id,
 		  	  	  	  	  	const ALIGNED<FrontendVertex>::int_hash_map & vertex_map,
 		  	  	  	  	  	const Matrix<double,3,3> camera_matrix,
-		  	  	  	  	  	cv::Mat *curFrameRGB, const vector<Vector3d> &edges,
+		  	  	  	  	  	cv::Mat *curFrameRGB,
+		  	  	  	  	  	const vector<Vector3d> &edges,
 		  	  	  	  	  	MonoFrontend *monoFrontednPtr,
 		  	  	  	  	  	AddToOptimzerPtr & to_optimizer,
 		  	  	  	  	  	std::vector<int> & localIDsofNewLinesToBeAdded,
-		  	  	  	  	  	SE3 &T_cur_from_w);
+		  	  	  	  	  	SE3 &T_cur_from_w,
+		  	  	  	  	  	int frame_id);
 
   static cv::Mat
   warpPatchProjective        (const cv::Mat & frame,
@@ -141,14 +170,14 @@ private:
   findMatchedLineWithSmallestError(const std::multimap<double,std::pair<Line,double>> &matchedLines, bool debug);
 
   static std::multimap<double,Line>
-  findNearestLinesOnCurrentFrameOrderedByDistance(Vector3d line,  std::vector<Line> &linesOnCurrentFrame,float err, bool debug);
+  findNearestLinesOnCurrentFrameOrderedByDistance(Vector3d line,  std::vector<Line> &linesOnCurrentFrame,float err,Vector2d reference_point, bool debug);
 
    static bool
    matchTwoLines(std::vector<int> descriptor1, std::vector<int> descriptor2,
    		  	  	  	  	  	  double &normalizedError, bool debug);
    static bool
       matchTwoLinesSSD(std::vector<int> descriptor1, std::vector<int> descriptor2,
-      		  	  	  	  	  	  double &normalizedError, bool debug);
+      		  	  	  	  	  	  double &normalizedError, bool debug, double error_thres);
 
 
   typedef uint8_t aligned_uint8_t __attribute__ ((__aligned__(16)));

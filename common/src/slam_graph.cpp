@@ -356,9 +356,10 @@ void SlamGraph<Frame,Cam,Proj,ObsDim>
 
   setupG2o(g2o_cam, &optimizer);
 
-  copyDataToG2o(opt_params, &optimizer, POINTS);
-  //copyDataToG2o(opt_params, &optimizer, POINTS_AND_LINES);
+  //copyDataToG2o(opt_params, &optimizer, POINTS);
+  copyDataToG2o(opt_params, &optimizer, POINTS_AND_LINES);
   //copyDataToG2o(opt_params, &optimizer, LINES);
+
 
   if(!optimizer.save("graph_before_optimization.g2o")) cout<<"could not save graph before optimization to file"<<endl;
   bool init=optimizer.initializeOptimization();
@@ -969,6 +970,7 @@ template <typename Pose, typename Cam, typename Proj, int ObsDim>
 void SlamGraph<Pose,Cam,Proj,ObsDim>
 ::copyPosesToG2o(g2o::SparseOptimizer * optimizer)
 {
+
   for (typename WindowTable::const_iterator
        it_win = double_window_.begin(); it_win!=double_window_.end(); ++it_win)
   {
@@ -1044,6 +1046,8 @@ void SlamGraph<Pose,Cam,Proj,ObsDim>
                 g2o::SparseOptimizer * optimizer, OptimizationType optimizationType)
 {
 
+	int required_obs=2;
+
 	cout << "Sending to G2O !" << endl;
 
   copyPosesToG2o(optimizer);
@@ -1102,34 +1106,72 @@ void SlamGraph<Pose,Cam,Proj,ObsDim>
   }
   if(optimizationType==LINES || optimizationType==POINTS_AND_LINES)
   {
+
   for (typename tr1::unordered_set<int>::const_iterator it = active_line_set_.begin(); it != active_line_set_.end(); ++it)
 	{
+	  	vector<int> found_frame_id;
 		int line_id = *it;
 		for (typename WindowTable::const_iterator it_win = double_window_.begin(); it_win != double_window_.end(); ++it_win)
 		{
 			int frame_id = it_win->first;
 			const Vertex & v = GET_MAP_ELEM(frame_id, vertex_table_);
+
 			typename tr1::unordered_map<int, Line>::const_iterator found_line = v.tracked_lines.find(line_id);
+
 			if (found_line != v.tracked_lines.end())
 			{
-				Matrix<double, 6, 6> linesLambda;
-				linesLambda.setIdentity();
-				g2o::OptimizableGraph::Vertex * vert = optimizer->vertex(line_id);
-				if (vert == NULL) //vertex has not been registered
-				{
-					const Line & l = GET_MAP_ELEM(line_id, line_table_);
-					//addPlueckerLineToG2o(l.optimizedPluckerLines, line_id, optimizer);
-					addPlueckerLineToG2o(l.pluckerLinesObservation, line_id, optimizer);
-					//cout << "added line vertex with ID " << line_id << endl;
+				found_frame_id.push_back(frame_id);
+				if(found_frame_id.size()<required_obs) //First case : not enough observations for optimization, we dont do anything
+					{
+					}
+				else{
+					if(found_frame_id.size()>required_obs) //Second case : the vertex already exists and we add an observation
+						{
+						SE3 T_me_f_w;
+						Matrix<double, 3, 3> linesLambda;
+						linesLambda.setIdentity();
+						g2o::OptimizableGraph::Vertex * vert = optimizer->vertex(line_id);
+						//const Vertex & v = GET_MAP_ELEM(frame_id, vertex_table_);
+						//typename tr1::unordered_map<int, Line>::const_iterator found_line = v.tracked_lines.find(line_id);
+						T_me_f_w=(*found_line).second.T_frame_w;
+						Vector3d lobs = (*found_line).second.pluckerLinesObservation;
+						addLineObsToG2o(lobs, linesLambda, line_id, frame_id,opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer,T_me_f_w);
+						}
+					else{ //Last case : creation of the vertex if enough observation for optim and inclusion of the previous Obs
+						//cout << " CREATION of line vertex " << line_id << "!!!!!!!!!!!!!!!!!"<< endl;
+						const Line & l = GET_MAP_ELEM(line_id, line_table_);
+						Vector6d obs = l.optimizedPluckerLines;
+						addPlueckerLineToG2o(obs, line_id, optimizer); //Changed to localObs from pluckerObs
+						for(auto ptr=found_frame_id.begin();ptr!=found_frame_id.end();ptr++){
+							const Vertex & v2 = GET_MAP_ELEM((*ptr), vertex_table_);
+							SE3 T_me_f_w;
+							typename tr1::unordered_map<int, Line>::const_iterator found_line2 = v2.tracked_lines.find(line_id);
+							Matrix<double, 3, 3> linesLambda;
+							linesLambda.setIdentity();
+							T_me_f_w=(*found_line2).second.T_frame_w;
+							Vector3d lobs = (*found_line2).second.pluckerLinesObservation;
+//							cout << "AHHHHHHHHHHHHHHHHHH " << frame_id << " = " << found_line->second.anchor_id << endl;
+							addLineObsToG2o(lobs, linesLambda, line_id, (*ptr) ,opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer,T_me_f_w);
+							}
+					}
 				}
-				addLineObsToG2o((*found_line).second.pluckerLinesObservation, linesLambda, line_id, frame_id,
-						opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer);
 			}
 		}
 	}
   }
-  copyContraintsToG2o(optimizer);
+   copyContraintsToG2o(optimizer);
 }
+
+//Matrix<double, 6, 6> linesLambda;
+//linesLambda.setIdentity();
+//g2o::OptimizableGraph::Vertex * vert = optimizer->vertex(line_id);
+//if (vert == NULL) //vertex has not been registered
+//{
+//	const Line & l = GET_MAP_ELEM(line_id, line_table_);
+//	addPlueckerLineToG2o(l.optimizedPluckerLines, line_id, optimizer);
+//	//cout << "added line vertex with ID " << line_id << endl;
+//}
+//addLineObsToG2o((*found_line).second.pluckerLinesObservation, linesLambda, line_id, frame_id,opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer);
 
 
 template <typename Pose, typename Cam, typename Proj, int ObsDim>
@@ -1154,9 +1196,12 @@ void SlamGraph<Pose,Cam,Proj,ObsDim>
       {
     	  G2oVertexPlueckerLine * g2o_line = dynamic_cast<G2oVertexPlueckerLine*>(v);
     	  assert(g2o_line!=0);
-    	  //cout<<"g2o line "<<g2o_line->id()<<" estimate: "<<g2o_line->estimate()<<endl;
     	  Line & l = GET_MAP_ELEM_REF(g2o_line->id(), &line_table_);
-    	  l.optimizedPluckerLines=g2o_line->estimate();
+
+//    	  if(g2o_line->id()==1 || g2o_line->id()==940)
+//    		  cout<<"g2o line "<<g2o_line->id()<<" estimate: "<<toPlueckerVec(inv*(toPlueckerMatrix(g2o_line->estimate()))*inv.transpose())<<endl;
+    	  l.optimizedPluckerLines=g2o_line->estimate(); //Added to  return to world coord
+
       }
       else
       {

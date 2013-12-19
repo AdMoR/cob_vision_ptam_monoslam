@@ -1,7 +1,7 @@
 #include "rgbd_grabber.h"
 #include <boost/thread.hpp>
 #include <fstream>
-//#include "utilities.h"
+#include "utilities.h"
 
 using namespace std;
 using namespace sensor_msgs;
@@ -11,22 +11,6 @@ using namespace cv;
 
 extern float g_focal_length,g_baseline,g_doff;
 
-
-void dumpToFile(std::string frame_nb, float x, float y, float z, float rx, float ry, float rz, float rw, string filePath="/home/rmb-am/Slam_datafiles/measurements.txt",int p=0){
-
-	ofstream myfile;
-	myfile.open (filePath, ios::app);
-	if(myfile.is_open()){
-		myfile << frame_nb << " " << x << " " << y << " " << z << " " << rx << " " << ry << " " << rz << " " << rw <<  endl;
-	}
-	myfile.close();
-}
-//
-//float depthToDisp(float depth)
-//{
-//  float scaled_disparity = g_focal_length/depth;
-//  return scaled_disparity/g_baseline;
-//}
 
 namespace ScaViSLAM {
 boost::mutex global_mutex;
@@ -83,8 +67,7 @@ cv::Mat global_disp_img(cv::Size(640, 480), CV_32F);
 //
 //}
 
-void RgbdGrabber::kinect_callback(const ImageConstPtr& img_color,
-		const stereo_msgs::DisparityImageConstPtr& img_depth) {
+void RgbdGrabber::kinect_callback(const ImageConstPtr& img_color, const stereo_msgs::DisparityImageConstPtr& img_depth) {
 	boost::mutex::scoped_lock lock(global_mutex);
 	cv_bridge::CvImagePtr cv_ptr;
 
@@ -150,15 +133,15 @@ void RgbdGrabber::kinect_callback(const ImageConstPtr& img_color,
 //		}
 
 		// cv::imshow("kinect", global_rgb_img);
-		Mat show;
-		convertScaleAbs(  global_disp_img, show );
-//		for( unsigned int i =0;i<10;i++){
-//			for(unsigned int j=0; j<10;j++){
-//				cout << global_disp_img.at<float>(200+i,200+j) << " " ;
-//			}
-//		}
-
-		cv::imshow("kinect disp",show);
+//		Mat show;
+//		convertScaleAbs(  global_disp_img, show );
+////		for( unsigned int i =0;i<10;i++){
+////			for(unsigned int j=0; j<10;j++){
+////				cout << global_disp_img.at<float>(200+i,200+j) << " " ;
+////			}
+////		}
+//
+//		cv::imshow("kinect disp",show);
 		//cv::waitKey(3);
 		new_frame = true;
 	} catch (cv_bridge::Exception& e) {
