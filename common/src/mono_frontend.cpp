@@ -211,21 +211,20 @@ void MonoFrontend::computeLines(std::vector<Line> &linesOnCurrentFrame, SE3 & T_
 
 	dumpToFile(std::to_string(frame_id),transformMatrix(0,3),transformMatrix(1,3),transformMatrix(2,3),transformMatrix(0,0),0,0,0,"/home/rmb-am/Slam_datafiles/map/no_lp.txt");
 
-	// Apply Histogram Equalization
+	// RGB line extraction
 	cv::equalizeHist( grayImage.image, src );
-
 	cv::GaussianBlur( src, blur, cv::Size(9, 9), 2, 2 );
-
 	cv::Canny(blur, dst, 40, 60);
 	int dilation_size=1;
 	cv::Mat element = cv::getStructuringElement( cv::MORPH_RECT,
 	                                       cv::Size( 2*dilation_size + 1, 2*dilation_size+1 ),
 	                                       cv::Point( dilation_size, dilation_size ) );
 	cv::dilate( dst, dst, element );
-
 	vector<cv::Vec4i> lines;
-	//apply probabilistic Hough Transformation
 	cv::HoughLinesP(dst, lines, 1, CV_PI/180, 80, 80, 0 );
+
+
+
 
     std::vector<cv::Rect> array;
 
@@ -1088,7 +1087,9 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	cur_frame_ = Frame(frame_data_->cur_left().pyr_uint8, frame_data_->disp);
 	computeFastCorners(6, &feature_tree, &cur_frame_.cell_grid2d);
 	per_mon_->stop("fast");
-//	cv::imshow("disp",frame_data_->disp);
+	Mat show;
+	convertScaleAbs(frame_data_->disp, show );
+	cv::imshow("disp",show);
 //    cv::imshow("color", frame_data_->cur_left().color_uint8);
 //    cv::imshow("mono", frame_data_->cur_left().uint8);
 //    cv::waitKey(2);

@@ -185,7 +185,7 @@ public:
 		//cout  <<mean  << " " << mean_left  << " " << mean_right << " " << size_left << " " <<size_right << endl;
 		//Return the variance reduction
 		if((1./(float)labels.size())*(sum-sum_left-sum_right)>1000){
-			cout  <<mean  << " " << mean_left  << " " << mean_right << " "<< sum_left<< " " <<sum_right <<" " << size_left << " " <<size_right << endl;
+			//cout  <<mean  << " " << mean_left  << " " << mean_right << " "<< sum_left<< " " <<sum_right <<" " << size_left << " " <<size_right << endl;
 		}
 		return (sum-sum_left-sum_right); //WARNING : was before 1/n * ( sum total - sum right - sum left )
 	}
@@ -476,7 +476,7 @@ void readTree(SplitNode* n,string fileName){
 void predict(SplitNode* n, Point& p,Mat& rgb, Mat& d,Vector3d& result){
 
 	if(!n->isLeaf){
-		cout << n->depth_ << endl;
+		//cout << n->depth_ << endl;
 		if(n->rgbd_feature(rgb,d,n->snp.delta1,n->snp.delta2,n->snp.channel1,n->snp.channel2,n->snp.threshold,p.x,p.y)){
 			predict(n->right_,p,rgb,d,result);
 		}
@@ -603,19 +603,19 @@ void refine_phase(SplitNode* root, Mat rgb_img, Mat d_img, int log_initial_hypot
 
 	//Enter the main loop
 	for(int i=0;i<log_initial_hypothesis;i++){
-		cout << "iter numer " << i << endl;
+
 		int j=0;
 
 		for(auto ptr=pose_hypothesis.begin();ptr!=pose_hypothesis.end();ptr++){
 
-			cout << "new candidate " << j << endl;
+
 			j++;
 
 			//Prepare the points
 			vector<Point> pxSet;
 			vector<Vector3d> gloPxPos,locPxPos;
 			getPixelSubset(d_img,pxSet,locPxPos,zero,number_of_sample_points,0);
-			cout << "sampling " << number_of_sample_points << " " << pxSet.size() << endl;
+
 			for(int k=0;k<number_of_sample_points;k++){
 				Vector3d res=Vector3d(0,0,0);
 				predict(root,pxSet[k],rgb_img,d_img,res);
@@ -623,7 +623,7 @@ void refine_phase(SplitNode* root, Mat rgb_img, Mat d_img, int log_initial_hypot
 			}
 
 			//do X - Hx on every pt
-			cout << "error estimation " << locPxPos.size() << " " << gloPxPos.size() << endl;
+
 			Matrix<double,4,4> H = (*ptr).pose.matrix();
 			for(int k=0;k<number_of_sample_points;k++){
 				Vector4d diff=(toHomogeneousCoordinates(gloPxPos[k])-H*toHomogeneousCoordinates(locPxPos[k]));
@@ -654,7 +654,7 @@ void refine_phase(SplitNode* root, Mat rgb_img, Mat d_img, int log_initial_hypot
 
 		//Refine the pose of the remaining candidates
 		cout << "refine " << endl;
-		int bingo=0;
+		int bingo=1;
 		for(auto ptr=pose_hypothesis.begin();ptr!=pose_hypothesis.end();ptr++){
 			cout << "numero " << bingo << " has " << ptr->loc_inliers.size() << " inliers " << endl;
 			bingo++;
@@ -674,15 +674,15 @@ void refine_phase(SplitNode* root, Mat rgb_img, Mat d_img, int log_initial_hypot
 int main(int argc, char* argv[]){
 
 	const int nb_frame_to_train=5;
-	const int nb_points_per_frame=500;
-	const int nb_random_param_per_node=3000;
-	const int nb_of_trees=1;
-	const int max_depth=3;
+	const int nb_points_per_frame=2000;
+	const int nb_random_param_per_node=5000;
+	const int nb_of_trees=2;
+	const int max_depth=7;
 	const int interval_bw_two_frames=100;
 
 	const bool training = false;
-	const string tree_saving_location="/home/rmb-am/Slam_datafiles/RGBDRegressionForest5.rf";
-	const string img_saving_location="/home/rmb-am/Slam_datafiles/training_img_2/";
+	const string tree_saving_location="/home/rmb-am/Slam_datafiles/RGBDRegressionForest7.rf";
+	const string img_saving_location="/home/rmb-am/Slam_datafiles/training_img_long/";
 
 	ros::init(argc, argv,"rgbd_random_tree");
 
@@ -715,7 +715,6 @@ int main(int argc, char* argv[]){
 		cout << "root created " << root->isLeaf << endl;
 
 		//Read the parameters
-
 		readTree(root,"/home/rmb-am/Slam_datafiles/read_a_forest.rt");
 
 		cout << root->snp.delta1 << " " << root->snp.delta2 << " " << root->snp.channel1 << " " << root->snp.channel2  << " " << root->snp.threshold << endl;
@@ -724,7 +723,7 @@ int main(int argc, char* argv[]){
 		empty.load_from_training("/home/rmb-am/Slam_datafiles/training_img/","/home/rmb-am/Slam_datafiles/frame_labels.txt");
 
 		//See the prediction on a training set image
-		int le_numero_gagnant =4;
+		int le_numero_gagnant = 3;
 		cout << "numero gagnant is " << le_numero_gagnant << endl;
 		vector<pair<Vector3d,int> > votes;
 		vector<Point> pxSet;
@@ -761,7 +760,7 @@ int main(int argc, char* argv[]){
 //		cout << "label was " << empty.pose_vector[le_numero_gagnant] << endl;
 
 
-		refine_phase(root,empty.rgb_img[le_numero_gagnant],empty.d_img[le_numero_gagnant],10,300);
+		refine_phase(root,empty.rgb_img[le_numero_gagnant],empty.d_img[le_numero_gagnant],7,300);
 
 	}
 
