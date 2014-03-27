@@ -14,15 +14,53 @@
 #include "quadtree.h"
 #include "pose_optimizer.h"
 #include "utilities.h"
-
+#include "rgbd_line.h"
 
 static bool dump=true;
 
 extern int KF_NUMBER;
+extern cv::Mat global_depth_img;
+
+
+class ItemInOtherVectorPred
+  {
+public:
+      const std::vector<cv::Vec4i>& otherVec;
+      double angle_weight;
+      double threshold;
+
+      ItemInOtherVectorPred(const std::vector<cv::Vec4i>& vec, double w,double t) : otherVec(vec) , angle_weight(w),threshold(t) {}
+
+      // return true if removeVecsElem should be deleted
+
+      bool operator()(const cv::Vec4i& removeVecsElem) const
+      {
+
+
+    	  double projectedtLineMag=0, projectedLineAng=0;
+    	  cartesianToPolar(calculateLinearForm((removeVecsElem)[0], (removeVecsElem)[1], (removeVecsElem)[2],(removeVecsElem)[3]), projectedtLineMag,projectedLineAng);
+
+    	  		for(int j=0;j<otherVec.size();j++){
+    	  			if((removeVecsElem)[0]==otherVec[j][0] && (removeVecsElem)[1]==otherVec[j][1] && (removeVecsElem)[2]==otherVec[j][2] && (removeVecsElem)[3]==otherVec[j][3]) continue;
+    	  			//Estimation of polar coord of second candidate
+    	  			double currentLineMag=0, currentLineAng=0;
+    	  			cartesianToPolar(calculateLinearForm(otherVec[j][0], otherVec[j][1], otherVec[j][2],otherVec[j][3]), currentLineMag, currentLineAng);
+
+    	  			//We delete the smallest line if the two are to close one to another
+    	  			if(computePolarDistance(projectedtLineMag, projectedLineAng, currentLineMag, currentLineAng, angle_weight)<threshold){
+    	  				cv::Point pt1 = cv::Point((removeVecsElem)[0]-(removeVecsElem)[2], (removeVecsElem)[1]-(removeVecsElem)[3]),pt2 = cv::Point(otherVec[j][0] - otherVec[j][2],otherVec[j][1] -otherVec[j][3]);
+    	  				if(pt1.dot(pt1)<pt2.dot(pt2))
+    	  					return (true);
+    	  			}
+    	  		}
+    	  		return false;
+      }
+  };
+
 
 namespace ScaViSLAM {
 
-
+extern Mat global_depth_img;
 cv_bridge::CvImage grayImage;
 cv_bridge::CvImage colorImage;
 char* window_name = "Edge Map";
@@ -105,6 +143,15 @@ void MonoFrontend::camera_info_cb(const sensor_msgs::CameraInfoConstPtr& rgbd_ca
 	camera_matrix(2,1) = rgbd_camera_info->K[7];
 	camera_matrix(2,2) = rgbd_camera_info->K[8];
    rgbd_camera_info_.shutdown();
+}
+
+
+void MonoFrontend::reduceLines(vector<cv::Vec4i>& lines, double threshold=2,double angle_weigth=5){
+
+	 ItemInOtherVectorPred trueIfItemInOtherVecPred( lines,angle_weigth,threshold);
+	 vector<cv::Vec4i>::iterator eraseBeg = std::remove_if( lines.begin(), lines.end(), trueIfItemInOtherVecPred);
+	 lines.erase(eraseBeg, lines.end());
+
 }
 
 
@@ -198,17 +245,160 @@ SVD
 
 }
 
+
+void MonoFrontend::includeNewLines(std::vector<Line> &linesOnCurrentFrame,vector<cv::Vec4i>& lines, Mat& firstRGBFrame, Mat& depth, Mat& s_img, Mat& oe_val, SE3 & T_cur_from_w, bool firstFrame, int frame_id, int type){
+
+
+
+if(type==0){
+
+	 for( size_t i = 0; i < lines.size(); i++ )
+	    {
+
+	    	vector<pair<int,int>> pixelsOnLine = lineBresenham(lines[i][0], lines[i][1], lines[i][2],lines[i][3]);
+	        std::vector<int> descriptor = computeLineDescriptorSSD(lines[i][0], lines[i][1], lines[i][2],lines[i][3], pixelsOnLine);
+	        Vector6d pluckerLines,localPlucker;
+	        Vector3d startingPoint;
+	        Vector3d endPoint;
+		    if (request3DCoordsAndComputePlueckerParams(pluckerLines,localPlucker, startingPoint, endPoint, lines[i][0], lines[i][1], lines[i][2],lines[i][3]))
+			{
+
+		        	cv::line( colorImage.image, cv::Point(lines[i][0], lines[i][1]), cv::Point(lines[i][2], lines[i][3]), cv::Scalar(255,0,0), 2, 8 );
+		        	Vector2d onePoint=Vector2d( lines[i][2],lines[i][3]);//( lines[i][3],-lines[i][2]) or (-lines[i][2], lines[i][3])
+					Line currentLine;
+					currentLine.global_id=getNewUniquePointId(); //We use the same counter as there is no reason to create another
+					currentLine.anchor_id=actkey_id;
+					currentLine.T_frame_w=T_cur_from_actkey_;
+					//currentLine.T_frame_w=T_cur_from_w;
+					currentLine.originalT=T_cur_from_w;
+					currentLine.linearForm = calculateLinearForm(lines[i][0], lines[i][1], lines[i][2],lines[i][3]);
+					currentLine.linearForm.normalize();
+					currentLine.descriptor = descriptor;
+					currentLine.pluckerLinesObservation = localPlucker;
+					currentLine.optimizedPluckerLines = pluckerLines;
+					currentLine.count = 3;
+					currentLine.startingPoint2d = cv::Point(lines[i][0], lines[i][1]);
+					currentLine.endPoint2d = cv::Point(lines[i][2], lines[i][3]);
+					currentLine.type=type; // The line is a rgb one
+
+					Vector2d l=Vector2d(-currentLine.linearForm(1),currentLine.linearForm(0));
+					l.normalize();
+					currentLine.rtheta=currentLine.startingPoint2d.x*l(0)+currentLine.startingPoint2d.y*l(1);
+					if(currentLine.linearForm(2)>0)
+						currentLine.rtheta=-currentLine.rtheta;
+
+					getProjectionVector(onePoint,531.15,currentLine.projectionVector,false);
+					currentLine.consecutive_frame=15;
+
+					cv::line( firstRGBFrame, currentLine.startingPoint2d, currentLine.endPoint2d, cv::Scalar(255,100,55), 2, 8 );
+
+					linesOnCurrentFrame.push_back(currentLine);
+					if (firstFrame)
+					{
+						ADD_TO_MAP_LINE(currentLine.global_id, currentLine, &tracked_lines);
+					}
+			}
+	    }
+	}
+else{
+	//Do for oe
+	for(auto ptr=lines.begin();ptr!=lines.end();ptr++){
+
+		vector<pair<int,int>> pixelsOnLine = lineBresenham((*ptr)[0],(*ptr)[1], (*ptr)[2],(*ptr)[3]);
+		std::vector<int> descriptor = computeLineDescriptorSSD((*ptr)[0], (*ptr)[1], (*ptr)[2],(*ptr)[3], pixelsOnLine);
+
+		//Init
+		Line currentLine;
+		currentLine.global_id=getNewUniquePointId(); //We use the same counter as there is no reason to create another
+		currentLine.anchor_id=actkey_id;
+		currentLine.T_frame_w=T_cur_from_actkey_;
+		currentLine.originalT=T_cur_from_w;
+		currentLine.linearForm = calculateLinearForm((*ptr)[0], (*ptr)[1], (*ptr)[2],(*ptr)[3]);
+		currentLine.linearForm.normalize();
+		currentLine.descriptor = descriptor;
+		//currentLine.pluckerLinesObservation = localPlucker;
+		//currentLine.optimizedPluckerLines = pluckerLines;
+		currentLine.count = 3;
+		currentLine.startingPoint2d = cv::Point((*ptr)[0], (*ptr)[1]);
+		currentLine.endPoint2d = cv::Point((*ptr)[2], (*ptr)[3]);
+		currentLine.type=type; // The line is a rgb one
+		Vector2d l=Vector2d(-currentLine.linearForm(1),currentLine.linearForm(0));
+		l.normalize();
+		currentLine.rtheta=currentLine.startingPoint2d.x*l(0)+currentLine.startingPoint2d.y*l(1);
+		if(currentLine.linearForm(2)>0)
+			currentLine.rtheta=-currentLine.rtheta;
+
+		currentLine.consecutive_frame=15;
+
+
+
+		 Vector6d pluckerLines,localPlucker;
+		 Vector3d startingPoint;
+		 Vector3d endPoint;
+//		 if (request3DCoordsAndComputePlueckerParams(pluckerLines,localPlucker, startingPoint, endPoint, (*ptr)[0], (*ptr)[1], (*ptr)[2],(*ptr)[3])){
+//			 cout << "LocalPlucker = " << localPlucker(0) << " " << localPlucker(1) << " " << localPlucker(2) << " " << localPlucker(3) << " " << localPlucker(4) << " " << localPlucker(5) << " " << endl;
+//			 cout << "OptPlucker = " << pluckerLines(0) << " " << pluckerLines(1) << " " << pluckerLines(2) << " " << pluckerLines(3) << " " << pluckerLines(4) << " " << pluckerLines(5) << " " << endl;
+//		 }
+
+
+
+
+		vector<cv::Point3f>depth_vec;
+
+
+
+		if(findDepthDifference(firstRGBFrame,s_img,depth,oe_val,cv::Point((*ptr)[1],(*ptr)[0]), cv::Point((*ptr)[3], (*ptr)[2]),pixelsOnLine,20,currentLine.d_descriptor,depth_vec,true,1,type,false)){
+
+			cv::Vec6f line_val;
+			//cout << startingPoint << " ptsssssss " << endPoint  << "      " << depth_vec.begin()->x << " "<< depth_vec.begin()->y<< " " << depth_vec.begin()->z<< endl;
+			fitLine(depth_vec,line_val,CV_DIST_L2,0,0.01,0.01);
+			//currentLine.descriptor=descriptorv;
+			Vector3d p1 = Vector3d(line_val[3],
+									line_val[4],
+									line_val[5]),
+					p2 = Vector3d(line_val[3] +100*line_val[0] ,
+									line_val[4] +100*line_val[1] ,
+									line_val[5]+100*line_val[2] );
+
+			currentLine.pluckerLinesObservation = computePlueckerLineParameters(p1,p2);
+			currentLine.pluckerLinesObservation.normalize();
+			//cout << "line plucker " << currentLine.pluckerLinesObservation << endl << endl;
+			Matrix<double,4,4> tf = T_cur_from_w.matrix().inverse();
+			currentLine.optimizedPluckerLines = toPlueckerVec(tf*toPlueckerMatrix(currentLine.pluckerLinesObservation)* tf.transpose());
+			line(firstRGBFrame,cv::Point((*ptr)[0],(*ptr)[1]), cv::Point((*ptr)[2], (*ptr)[3]),cv::Scalar(0,255,255),2,8);
+			//cout << "line plucker " << currentLine.optimizedPluckerLines << endl << endl;
+			linesOnCurrentFrame.push_back(currentLine);
+			if (firstFrame){
+				ADD_TO_MAP_LINE(currentLine.global_id, currentLine, &tracked_lines);
+			}
+		}
+		else{
+			//delete line instead
+		}
+	}
+  }
+}
+
+
 void MonoFrontend::computeLines(std::vector<Line> &linesOnCurrentFrame, SE3 & T_cur_from_w, bool firstFrame, int frame_id)
 {
 	cv::Mat dst, blur, src;
+	double min,max;
+	Point maxlo,minlo;
 	grayImage.encoding = sensor_msgs::image_encodings::MONO8;
 	grayImage.image = frame_data_->cur_left().uint8;
+	Mat myDisp = frame_data_->disp;
+	Mat myDepth = global_depth_img.clone();
+	cout << myDepth.size() << endl;
 	colorImage.image = frame_data_->cur_left().color_uint8;
-	cv::Mat firstRGBFrame = colorImage.image.clone();
-
+	cv::Mat firstRGBFrame = colorImage.image.clone(),hsv;
+	vector<Mat> hsv_cha,oe_channels;
+	cv::cvtColor(firstRGBFrame, hsv, CV_BGR2HSV);
+	split(hsv,hsv_cha);
+	cv::Mat oe,occluding_e,occluded_e,Nx,Ny,validity_map;
+	vector<cv::Vec4i> lines,lines2,lines3;
 
 	transformMatrix = T_cur_from_w.matrix();
-
 	dumpToFile(std::to_string(frame_id),transformMatrix(0,3),transformMatrix(1,3),transformMatrix(2,3),transformMatrix(0,0),0,0,0,"/home/rmb-am/Slam_datafiles/map/no_lp.txt");
 
 	// RGB line extraction
@@ -216,92 +406,44 @@ void MonoFrontend::computeLines(std::vector<Line> &linesOnCurrentFrame, SE3 & T_
 	cv::GaussianBlur( src, blur, cv::Size(9, 9), 2, 2 );
 	cv::Canny(blur, dst, 40, 60);
 	int dilation_size=1;
-	cv::Mat element = cv::getStructuringElement( cv::MORPH_RECT,
-	                                       cv::Size( 2*dilation_size + 1, 2*dilation_size+1 ),
-	                                       cv::Point( dilation_size, dilation_size ) );
+	cv::Mat element = cv::getStructuringElement( cv::MORPH_RECT,  cv::Size( 2*dilation_size + 1, 2*dilation_size+1 ),  cv::Point( dilation_size, dilation_size ) );
 	cv::dilate( dst, dst, element );
-	vector<cv::Vec4i> lines;
 	cv::HoughLinesP(dst, lines, 1, CV_PI/180, 80, 80, 0 );
 
 
+	// Occluding edge extraction
+	validPixelMap(myDepth,validity_map);
+	getOccluding(myDepth,validity_map,oe,Nx,Ny,false,80,0.04,false);
+	cv::split(oe,oe_channels);
+	cv::threshold(oe_channels[0],occluding_e,10,255,THRESH_BINARY);
+	cv::dilate( occluding_e,occluding_e, element,Point(-1,-1),1 );
+	//cv::erode( occluding_e, occluding_e, element ,Point(-1,-1),2);
+	cv::HoughLinesP( occluding_e, lines2, 1, CV_PI/180,  30,30,2);
 
+	cv::threshold(oe_channels[1],occluded_e,10,255,THRESH_BINARY);
+	cv::dilate( occluded_e,occluded_e, element,Point(-1,-1),1 );
+	//cv::erode( occluded_e, occluded_e, element ,Point(-1,-1),2);
+	cv::HoughLinesP( occluded_e, lines3, 1, CV_PI/180,  30,30,2); //60 80 12
 
-    std::vector<cv::Rect> array;
+	reduceLines(lines2,7);
+	reduceLines(lines3,7);
+	reduceLines(lines,7);
 
-  //  cout<<"map size: "<<tracked_lines.size()<<endl;
     linesOnCurrentFrame.reserve(lines.size());
-    cout<<"hough detected lines size: "<<lines.size()<<endl;
-//    int aux=0;
-    for( size_t i = 0; i < lines.size(); i++ )
-    {
-        //cv::line( colorImage.image, cv::Point(lines[i][0], lines[i][1]), cv::Point(lines[i][2], lines[i][3]), cv::Scalar(255,0,0), 2, 8 );
+    cout<<"hough detected lines size: "<<lines.size()+lines2.size()<<endl;
 
-// cout<<"x1: "<<lines[i][0]<<" y1: "<<lines[i][1]<<" x2: "<<lines[i][2]<<" y2: "<<lines[i][3]<<endl;
-    	vector<pair<int,int>> pixelsOnLine = lineBresenham(lines[i][0], lines[i][1], lines[i][2],lines[i][3]);
-        std::vector<int> descriptor = computeLineDescriptorSSD(lines[i][0], lines[i][1], lines[i][2],lines[i][3], pixelsOnLine);
-//        std::vector<int> descriptor = computeLineDescriptor(lines[i][0], lines[i][1], lines[i][2],lines[i][3], pixelsOnLine);
-//        cout<<"descriptor size: "<<descriptor.size()<<endl;
+    includeNewLines(linesOnCurrentFrame,lines,firstRGBFrame,myDepth,hsv_cha[1],oe,T_cur_from_w,firstFrame,frame_id,0);
+    includeNewLines(linesOnCurrentFrame,lines2,firstRGBFrame,myDepth,hsv_cha[1],oe,T_cur_from_w,firstFrame,frame_id,1);
+    includeNewLines(linesOnCurrentFrame,lines3,firstRGBFrame,myDepth,hsv_cha[1],oe,T_cur_from_w,firstFrame,frame_id,2);
 
-//        for(std::vector<int>::size_type i = 0; i != descriptor.size(); i++) {
-//        	cout<<"descriptor["<<i<<"]: "<<descriptor[i]<<endl;
-//        }
-//    	computeSVDPluecker(pixelsOnLine);
-        Vector6d pluckerLines,localPlucker;
-        Vector3d startingPoint;
-        Vector3d endPoint;
-//	        if (request3DCoordsAndComputePlueckerParams(pluckerLines,localPlucker, startingPoint, endPoint, lines[i][0], lines[i][1], lines[i][2],lines[i][3]))
-//			{
-//			cout << "plucker param: " << pluckerLines[0] << " " << pluckerLines[1] << " " << pluckerLines[2] << " "
-//					<< pluckerLines[3] << " " << pluckerLines[4] << " " << pluckerLines[5] << endl;
 
-	        	cv::line( colorImage.image, cv::Point(lines[i][0], lines[i][1]), cv::Point(lines[i][2], lines[i][3]), cv::Scalar(255,0,0), 2, 8 );
-	        	Vector2d onePoint=Vector2d( lines[i][2],lines[i][3]);//( lines[i][3],-lines[i][2]) or (-lines[i][2], lines[i][3])
-				Line currentLine;
-				currentLine.global_id=getNewUniquePointId(); //We use the same counter as there is no reason to create another
-				currentLine.anchor_id=actkey_id;
-				currentLine.T_frame_w=T_cur_from_actkey_;
-				//currentLine.T_frame_w=T_cur_from_w;
-				currentLine.originalT=T_cur_from_w;
-				//cout << "BOUM "<<T_cur_from_actkey_.translation() << "BIM>>>>>>>" << T_cur_from_w.translation() << ">>>>>BAM" << endl;
-				currentLine.linearForm = calculateLinearForm(lines[i][0], lines[i][1], lines[i][2],lines[i][3]);
-				currentLine.linearForm.normalize();
-				currentLine.descriptor = descriptor;
-				currentLine.pluckerLinesObservation = currentLine.linearForm;//localPlucker;
-				currentLine.optimizedPluckerLines = Vector6d();//pluckerLines;
-				currentLine.optimizedPluckerLines << 0.16666 , -0.16666 ,0.16666 ,-0.16666 ,0.16666 ,-0.16666;
-				if(currentLine.global_id==1)
-					pluckerToFile(pluckerLines,1);
-				currentLine.count = 6;
-				currentLine.Kf_count=KF_NUMBER;
-				currentLine.startingPoint2d = cv::Point(lines[i][0], lines[i][1]);
-				currentLine.endPoint2d = cv::Point(lines[i][2], lines[i][3]);
-				Vector2d l=Vector2d(-currentLine.linearForm(1),currentLine.linearForm(0));
-				l.normalize();
-				currentLine.rtheta=currentLine.startingPoint2d.x*l(0)+currentLine.startingPoint2d.y*l(1);
-				if(currentLine.linearForm(2)>0)
-					currentLine.rtheta=-currentLine.rtheta;
-				if(currentLine.global_id==1){
-					cout << currentLine.global_id << currentLine.linearForm << endl;
-					getProjectionVector(onePoint,531.15,currentLine.projectionVector,true);}
-				else
-					getProjectionVector(onePoint,531.15,currentLine.projectionVector,false);
-				if(request3DCoordsAndComputePlueckerParams(currentLine.GTPlucker,localPlucker,currentLine.startingPoint3d,currentLine.endPoint3d,lines[i][0], lines[i][1], lines[i][2],lines[i][3]))
-					{Vector3d lineVec=currentLine.endPoint3d-currentLine.startingPoint3d;
-					lineVec.normalize();
-					if(currentLine.global_id<15)
-						dumpToFile(std::to_string(currentLine.global_id),lineVec(0),lineVec(1),lineVec(2),100000000,100000000,1000000000,10000000000,"/home/rmb-am/Slam_datafiles/3DcoordLine.txt");
-				}
-				currentLine.consecutive_frame=0;
-				linesOnCurrentFrame.push_back(currentLine);
-				if (firstFrame)
-				{
-					ADD_TO_MAP_LINE(currentLine.global_id, currentLine, &tracked_lines);
-				}
-//			}
-    }
+    cv::imshow("current lines", firstRGBFrame);
+    cv::waitKey(1);
 
-//    cv::imshow("current lines", colorImage.image);
-//    cv::waitKey(1);
+    cv::imshow("occulding", occluding_e);
+    cv::waitKey(1);
+
+
 
 
 }
@@ -1089,7 +1231,7 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	per_mon_->stop("fast");
 	Mat show;
 	convertScaleAbs(frame_data_->disp, show );
-	cv::imshow("disp",show);
+	//cv::imshow("disp",show);
 //    cv::imshow("color", frame_data_->cur_left().color_uint8);
 //    cv::imshow("mono", frame_data_->cur_left().uint8);
 //    cv::waitKey(2);
@@ -1097,7 +1239,7 @@ bool MonoFrontend::processFrame(bool * is_frame_dropped) {
 	Timer t1;
 	t1.start();
 	SE3 T_act_from_w = GET_MAP_ELEM(actkey_id,neighborhood_->vertex_map).T_me_from_w;
-	cout<< T_act_from_w << ">>><>>> act from w " << endl;
+	//cout<< T_act_from_w << ">>><>>> act from w " << endl;
 	SE3 T_cur_from_world = T_cur_from_actkey_*T_act_from_w;
 	computeLines(linesOnCurrentFrame,T_cur_from_world, false,actkey_id);
 	t1.stop();
@@ -1269,7 +1411,7 @@ void MonoFrontend::addNewKeyframe(
 	//For lines
 	for (tr1::unordered_map<int, Line>::const_iterator it =	to_optimizer->tracked_lines.begin(); it!= to_optimizer->tracked_lines.end(); ++it) {
 		Line p = (it->second);
-		p.Kf_count+=1;
+		//p.Kf_count+=1;
 		ADD_TO_MAP_ELEM(p.anchor_id, 1, &num_matches); //Add one to the covis val
 		vf.line_map.insert(make_pair(p.global_id, p)); //The new lines features discovered before are entered in the vertex
 	}

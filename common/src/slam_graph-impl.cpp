@@ -102,14 +102,14 @@ void SlamGraph<SE3,StereoCamera, SE3XYZ_STEREO, 3>
 
 template <>
 void SlamGraph<SE3,StereoCamera, SE3XYZ_STEREO, 3>
-::addLineObsToG2o(const Vector3d & obs, //Here 6->3
-              const Matrix3d & Lambda, //Again
+::addLineObsToG2o(const Vector6d & obs, //Here 6->3 rollllllback
+              const Matrix6d & Lambda, //Again
               int g2o_line_id,
               int pose_id,
               bool robustify,
               double huber_kernel_width,
-              g2o::SparseOptimizer * optimizer,
-              SE3 T_me_f_actkey)
+              g2o::SparseOptimizer * optimizer
+             )// SE3 T_me_f_actkey)
 {
   G2oEdgeSE3PlueckerLine * e = new G2oEdgeSE3PlueckerLine();
 
@@ -168,7 +168,7 @@ void SlamGraph<SE3,StereoCamera, SE3XYZ_STEREO, 3>
 
   e->setId(current_id);
   current_id+=1;
-  e->T_cur_f_actkey=T_me_f_actkey;
+  //e->T_cur_f_actkey=T_me_f_actkey;
 
   if (robustify)
   {

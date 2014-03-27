@@ -102,13 +102,13 @@ typedef struct Line
 {
 	int global_id;
 	int anchor_id;
-//	Matrix<double,4,4> T_frame_w;
-//	Matrix<double,4,4> originalT;
-	Vector3d pluckerLinesObservation; //Here
+	int type;
+	Vector6d pluckerLinesObservation; //Here
 	Vector6d optimizedPluckerLines;
 	Vector6d GTPlucker;
 	SE3 originalT, T_frame_w;
 	std::vector<int> descriptor;
+	std::vector<float> d_descriptor;
 	Vector3d linearForm; //ax+by+c=0
 	Vector3d projectionVector;
 	cv::Point startingPoint2d;
@@ -116,31 +116,31 @@ typedef struct Line
 	double rtheta;
 	Vector3d startingPoint3d;
 	Vector3d endPoint3d;
-	Matrix3d lambda;
 	bool active;
 	int count;
 	int consecutive_frame;
-	int Kf_count;
-	vector< pair< Vector3d, Matrix<double,3,6> > > obsList;
-	map<int,Matrix<double,4,4>> previousTransform;
+	//int Kf_count;
+	//vector< pair< Vector3d, Matrix<double,3,6> > > obsList;
+	//map<int,Matrix<double,4,4>> previousTransform;
 
 	Line(){}
 																	//Here
-	Line(int id,int anch_id,Vector3d linForm,std::vector<int> desc,Vector3d pluckerLines,int c,cv::Point startingPoint, cv::Point endPoint, Vector3d startingP3d, Vector3d endingP3d ){
+	Line(int id,int anch_id,Vector3d linForm,std::vector<int> desc,Vector6d pluckerLines,int c,cv::Point startingPoint, cv::Point endPoint, Vector3d startingP3d, Vector3d endingP3d ){
 		global_id=id;
 		anchor_id=anch_id;
 		linearForm = linForm;
 		descriptor = desc;
 		T_frame_w=SE3();
 		pluckerLinesObservation = pluckerLines;
-		//optimizedPluckerLines = Vector6d(); //HEre
+		optimizedPluckerLines = Vector6d(); //HEre
 		count = c;
 		startingPoint2d = startingPoint;
 		endPoint2d = endPoint;
 		startingPoint3d = startingP3d;
 		endPoint3d = endingP3d;
-		active=false;
+		active=true;
 		consecutive_frame=0;
+		type=-1; //-1 not defined, 0 rgb, 1 occluding, 2 occluded
 	}
 
 	//typedef typename ALIGNED<Line>::int_hash_map LTable; //line feature table

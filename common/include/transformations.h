@@ -19,7 +19,7 @@
 #define SCAVISLAM_TRANSFORMATIONS_H
 
 #include <list>
-
+#include <fstream>
 #include <sophus/se3.h>
 #ifdef MONO
 #include <sophus/sim3.h>
@@ -87,6 +87,11 @@ computePlueckerLineParameters(Vector3d a, Vector3d b)
     plueckerParam[3] = a[1] * b[2] -  b[1] * a[2];
     plueckerParam[4] = -1*(a[1]  -  b[1]); //to get l42 instead of l24
     plueckerParam[5] = a[2]  -  b[2]; //what if it is zero? use L2 Norm
+
+    ofstream os;
+    os.open("/home/rmb-am/Slam_datafiles/line_mixture_data.txt",ios::app);
+    os << plueckerParam <<endl<<endl;
+    os.close();
 
     plueckerParam.normalize();
 

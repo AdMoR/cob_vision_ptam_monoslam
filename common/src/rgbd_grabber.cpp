@@ -18,6 +18,7 @@ bool new_frame;
 
 cv::Mat global_rgb_img(cv::Size(640, 480), CV_8UC3);
 cv::Mat global_disp_img(cv::Size(640, 480), CV_32F);
+cv::Mat global_depth_img(cv::Size(640,480), CV_32F);
 
 
 
@@ -67,7 +68,7 @@ cv::Mat global_disp_img(cv::Size(640, 480), CV_32F);
 //
 //}
 
-void RgbdGrabber::kinect_callback(const ImageConstPtr& img_color, const stereo_msgs::DisparityImageConstPtr& img_depth) {
+void RgbdGrabber::kinect_callback(const ImageConstPtr& img_color,const ImageConstPtr& img_depth, const stereo_msgs::DisparityImageConstPtr& img_disp) {
 	boost::mutex::scoped_lock lock(global_mutex);
 	cv_bridge::CvImagePtr cv_ptr;
 
@@ -77,8 +78,10 @@ void RgbdGrabber::kinect_callback(const ImageConstPtr& img_color, const stereo_m
 		cv_ptr = cv_bridge::toCvCopy(img_color, enc::BGR8);
 		global_rgb_img = cv_ptr->image;
 		//cout << "after" << endl;
-		cv_ptr = cv_bridge::toCvCopy(img_depth->image, enc::TYPE_32FC1);
+		cv_ptr = cv_bridge::toCvCopy(img_disp->image, enc::TYPE_32FC1);
 		global_disp_img = cv_ptr->image;
+		cv_ptr = cv_bridge::toCvCopy(img_depth, enc::TYPE_32FC1);
+		global_depth_img = cv_ptr->image;
 		// TODO: avoid copy
 //		cv_bridge::CvImage out_msg;
 //		//out_msg.header   = in_msg->header; // Same timestamp and tf frame as input image
@@ -225,18 +228,18 @@ void RgbdGrabber::initialize() {
 //}
 
 void RgbdGrabber::operator()() {
-	typedef sync_policies::ApproximateTime<sensor_msgs::Image,stereo_msgs::DisparityImage> MySyncPolicy;
-	typedef sync_policies::ApproximateTime<sensor_msgs::Image,sensor_msgs::Image> MySyncPolicy2;
+	typedef sync_policies::ApproximateTime<sensor_msgs::Image,sensor_msgs::Image,stereo_msgs::DisparityImage> MySyncPolicy;
+	//typedef sync_policies::ApproximateTime<sensor_msgs::Image,sensor_msgs::Image> MySyncPolicy2;
 
 
 	kinect_rgb_sub.subscribe(node_handle, "/camera/rgb/image_color", 1);
 	kinect_depth_sub.subscribe(node_handle,"/camera/depth_registered/image_raw", 1);
  	kinect_disp_sub.subscribe(node_handle,"/camera/depth_registered/disparity", 1);
-	 Synchronizer<MySyncPolicy> sync(MySyncPolicy(3), kinect_rgb_sub,kinect_disp_sub);
+	 Synchronizer<MySyncPolicy> sync(MySyncPolicy(3), kinect_rgb_sub,kinect_depth_sub,kinect_disp_sub);
 //	Synchronizer<MySyncPolicy> sync(MySyncPolicy(3), kinect_rgb_sub,kinect_disp_sub);
-	Synchronizer<MySyncPolicy2> sync2(MySyncPolicy2(3), kinect_rgb_sub, kinect_depth_sub);
+	//Synchronizer<MySyncPolicy2> sync2(MySyncPolicy2(3), kinect_rgb_sub, kinect_depth_sub);
 
-	sync.registerCallback(	boost::bind(&RgbdGrabber::kinect_callback, this, _1, _2));
+	sync.registerCallback(	boost::bind(&RgbdGrabber::kinect_callback, this, _1, _2,_3) );
 
 
 	ros::spin();

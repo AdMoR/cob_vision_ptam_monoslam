@@ -27,7 +27,7 @@ const char* const DELIMITER = " ";
 
 
 
-
+//Was used in addition of scavislam to retrieve the non Kf poses
 
 
 

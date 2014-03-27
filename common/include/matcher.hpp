@@ -179,6 +179,9 @@ private:
       matchTwoLinesSSD(std::vector<int> descriptor1, std::vector<int> descriptor2,
       		  	  	  	  	  	  double &normalizedError, bool debug, double error_thres);
 
+ static bool
+ 	 matchTwoLinesDD(std::vector<float> descriptor1, std::vector<float> descriptor2, double &normalizedError, bool debug,double error_thr);
+
 
   typedef uint8_t aligned_uint8_t __attribute__ ((__aligned__(16)));
 

@@ -135,6 +135,7 @@ public:
   ImageSet right;
 
   cv::Mat disp;
+  cv::Mat depth;
   cv::Mat color_disp;
 #ifdef SCAVISLAM_CUDA_SUPPORT
   cv::gpu::GpuMat gpu_disp_32f;

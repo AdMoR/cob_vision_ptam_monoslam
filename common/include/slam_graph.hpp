@@ -638,14 +638,14 @@ public:
                               double huber_kernel_width,
                               g2o::SparseOptimizer * optimizer);
     void
-    addLineObsToG2o(const Vector3d & obs, //Here 6->3
-    		 const Matrix<double, 3, 3> & Lambda,
+    addLineObsToG2o(const Vector6d & obs, //Here 6->3
+    		 const Matrix<double, 6, 6> & Lambda,
                   int g2o_line_id,
                   int pose_id,
                   bool robustify,
                   double huber_kernel_width,
-                  g2o::SparseOptimizer * optimizer,
-                 SE3 T_me_f_actkey);
+                  g2o::SparseOptimizer * optimizer
+                 );//SE3 T_me_f_actkey);
 
     void
     addConstraintToG2o       (const Pose & T_2_from_1,

@@ -21,6 +21,7 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <tf/tf.h>
 #include <ros/ros.h>
+#include "sophus/se3.h"
 #include <tf/transform_listener.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -44,9 +45,11 @@ class DatasetBuilder {
 
 	public:
 	vector<Mat> rgb_img,d_img;
-	vector<Vector3d> pose_vector;
+	vector<Sophus::SE3> pose_vector;
 	int one_image_every_n;
 	int frame_counter;
+
+	bool use_Lab;
 
 	tf::TransformListener tflistener;
 	tf::StampedTransform current_transform;
@@ -55,7 +58,8 @@ class DatasetBuilder {
 	ros::NodeHandle node_handle;
 
 
-	DatasetBuilder(int n):one_image_every_n(n){};
+	DatasetBuilder(int n, bool use_lab):one_image_every_n(n),use_Lab(use_lab){};
+	DatasetBuilder(int n):one_image_every_n(n),use_Lab(false){};
 	void init(string pose_camera, string pose_w,string topic_rgb, string topic_d);
 	void remember_training(string prefix);
 	void load_from_training(string directory_path,string labels_file);

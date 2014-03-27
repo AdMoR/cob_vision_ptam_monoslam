@@ -163,7 +163,7 @@ bool G2oEdgeSE3PlueckerLine
 	is >> pId;
 	setParameterId(0, pId);
 	// measured keypoint
-	Vector3d meas;                        //Changed 6->3
+	Vector6d meas;                        //Changed 6->3 rollllllllback
 	for (int i = 0; i < 6; i++)
 		is >> meas[i];
 	setMeasurement(meas);
@@ -196,71 +196,66 @@ void G2oEdgeSE3PlueckerLine
 	      = static_cast<const G2oVertexSE3*>(_vertices[0]);
 	  const G2oVertexPlueckerLine * l2
 	     = static_cast<const G2oVertexPlueckerLine*>(_vertices[1]);
-	  Vector3d obsVec(_measurement);
+	  Vector6d obsVec(_measurement);
+	  obsVec.normalize();
 
-
-	  //cout << T_cur_f_actkey.translation()<<" <> " << v1->estimate().inverse().translation()<< " "<< id() << " " <<v1->id() << endl;
-
-	   SE3 T_cur_w = (T_cur_f_actkey*v1->estimate());//The normal case
-	   //SE3 T_cur_w = (T_cur_f_actkey); //The optimizer friendly case
-	   Matrix<double,4,4> tr=T_cur_w.matrix();
-	  //proj matrix
-	  Matrix<double,3,6> projMat=computeLineProjectionMatrix(computeProjectionMatrix(g_camera_matrix, tr ));
-
-
-
-
-	  Vector6d est =l2->estimate();
-	  //cout << l2->estimate() << "line with id " << id() << endl;
-	  est.normalize();
-	  Vector3d estimProj=projMat*est;
-
-	  //cout << tr << "from plucker : " << id() << endl;
-
-	  //cout << l2->estimate() << " <<>> " << estimProj << endl;
-	  double estimNorm=estimProj.norm();
-
-	  if(estimNorm>0.0000000000000000000000000000000000000000000000000000000000001){
-		  estimProj.normalize();
-		  obsVec.normalize();
-	  }
-
-
-	  //cout << estimProj << " estim<<>>obs " << obsVec << endl;
-
-
-
-
-	  if(obsVec(2)*estimProj(2)<0)
-	 	changeSigns(obsVec);
-
-	  _error= estimNorm*(estimProj-obsVec);
-
-//	  if(l2->id()==1)
-//		  cout << "Error = " << _error.norm() << endl;
-
-	  //cout  <<" it is hessian ; " <<  _hessian << "it is b : " << _b << endl;
-
-	 // cout << "err = " << _error << ", norm : " << _error.norm() << endl;
-////	  Matrix<double, 4, 4> obsPlueckerMatrix;
-////	  obsPlueckerMatrix = toPlueckerMatrix(obsVec);
-////	  obsPlueckerMatrix.normalize(); //why not normalize vector? is faster
+//	  //cout << T_cur_f_actkey.translation()<<" <> " << v1->estimate().inverse().translation()<< " "<< id() << " " <<v1->id() << endl;
 //
-//	  Matrix<double, 4, 4> estimationPlueckerMatrix;
-//	  Vector6d estim = l2->estimate();
-//	  estim.normalize();
-//	  estimationPlueckerMatrix = toPlueckerMatrix(estim);
-////	  estimationPlueckerMatrix.normalize();
+//	   SE3 T_cur_w = (T_cur_f_actkey*v1->estimate());//The normal case
+//	   //SE3 T_cur_w = (T_cur_f_actkey); //The optimizer friendly case
+//	   Matrix<double,4,4> tr=T_cur_w.matrix();
+//	  //proj matrix
+//	  Matrix<double,3,6> projMat=computeLineProjectionMatrix(computeProjectionMatrix(g_camera_matrix, tr ));
 //
-//	  Matrix<double, 4, 4> tmpMatrix;
-//	  tmpMatrix = v1->estimate().matrix() * estimationPlueckerMatrix * v1->estimate().matrix().transpose();
-////	  tmpMatrix.normalize();
 //
-//	  //todo: check if error is zero when estimation and observation are the same
-//	  Vector6d tmpVec = toPlueckerVec(tmpMatrix);
-//	  tmpVec.normalize();
-//	  _error = tmpVec - obsVec;
-	  //cout<<"G2oEdgeSE3PlueckerLine::computeError: "<<_error<<endl;
+//
+//
+//	  Vector6d est =l2->estimate();
+//	  //cout << l2->estimate() << "line with id " << id() << endl;
+//	  est.normalize();
+//	  Vector3d estimProj=projMat*est;
+//
+//	  //cout << tr << "from plucker : " << id() << endl;
+//
+//	  //cout << l2->estimate() << " <<>> " << estimProj << endl;
+//	  double estimNorm=estimProj.norm();
+//
+//	  if(estimNorm>0.0000000000000000000000000000000000000000000000000000000000001){
+//		  estimProj.normalize();
+//		  obsVec.normalize();
+//	  }
+//
+//
+//	  //cout << estimProj << " estim<<>>obs " << obsVec << endl;
+//
+//
+//
+//
+//	  if(obsVec(2)*estimProj(2)<0)
+//	 	changeSigns(obsVec);
+//
+//	  _error= estimNorm*(estimProj-obsVec);
+
+
+//	  Matrix<double, 4, 4> obsPlueckerMatrix;
+//	  obsPlueckerMatrix = toPlueckerMatrix(obsVec);
+//	  obsPlueckerMatrix.normalize(); //why not normalize vector? is faster
+
+	  Matrix<double, 4, 4> estimationPlueckerMatrix;
+	  Vector6d estim = l2->estimate();
+	  estim.normalize();
+	  estimationPlueckerMatrix = toPlueckerMatrix(estim);
+//	  estimationPlueckerMatrix.normalize();
+
+	  Matrix<double, 4, 4> tmpMatrix;
+	  tmpMatrix = v1->estimate().matrix() * estimationPlueckerMatrix * v1->estimate().matrix().transpose();
+//	  tmpMatrix.normalize();
+
+	  //todo: check if error is zero when estimation and observation are the same
+	  Vector6d tmpVec = toPlueckerVec(tmpMatrix);
+	  tmpVec.normalize();
+	  _error = tmpVec - obsVec;
+
 }
 
 bool G2oEdgeProjectPSI2UVU

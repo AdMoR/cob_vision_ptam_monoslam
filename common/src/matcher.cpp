@@ -16,6 +16,7 @@
 // along with ScaViSLAM.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "matcher.hpp"
+#include "rgbd_line.h"
 
 #include <stdint.h>
 #include <tgmath.h>
@@ -31,6 +32,7 @@
 #include "transformations.h"
 #include <iostream>
 #include <Eigen/Dense>
+
 using namespace std;
 using namespace Eigen;
 
@@ -41,8 +43,6 @@ extern int KF_NUMBER;
 
 
 //TODO: improve sub-pixel using LK tracking or ESM
-
-
 
 
 namespace ScaViSLAM
@@ -483,160 +483,7 @@ Line GuidedMatcher<Camera>::findMatchedLineWithSmallestError(const std::multimap
 }
 
 
-template <class Camera>
-void GuidedMatcher<Camera>::post_matching(tr1::unordered_map<int,Line> &tracked_lines,
-										std::vector<Line> linesOnCurrentFrame,
-										map<int,int>& matchedline_id ,
-										set<int>& currentLineLocalId,
-										 map<int,Vector3d>& projection_map,
-										bool color_mode,
-										vector<pair<int,cv::Scalar> >& colormap,
-										Mat *curFrameRGB,
-										int KF_NUMBER,
-										int line_num,
-										int line_tracked,
-										bool one_line_track,
-										bool verbose,
-										Matrix<double,3,4> projectionsMatrix,
-										SE3 T_actkey_from_w){
 
-	for(auto tracked_lines_iter=tracked_lines.begin();tracked_lines_iter!=tracked_lines.end();tracked_lines_iter++){
-
-
-
-					Line matchedLine;
-					bool matched=false;
-
-					for(auto ptr=linesOnCurrentFrame.begin();ptr!=linesOnCurrentFrame.end();ptr++){
-						if(matchedline_id.find(ptr->global_id)->second==tracked_lines_iter->second.global_id){
-							matchedLine=(*ptr);
-							matched=true;
-							break;
-						}
-					}
-
-					if(matched=true){
-						 Vector3d projectedHomogeneousLine2=projection_map.find(tracked_lines_iter->second.global_id)->second;
-						(*tracked_lines_iter).second.consecutive_frame++;
-
-						if(!one_line_track && verbose)
-							cout << "match" << endl;
-
-						int pos = 0;
-						for (auto linesOnCurrentFrame_iter = linesOnCurrentFrame.begin(); linesOnCurrentFrame_iter != linesOnCurrentFrame.end(); ++linesOnCurrentFrame_iter)
-						{
-							if (equalVectors3d((*linesOnCurrentFrame_iter).linearForm, matchedLine.linearForm))
-							{
-								currentLineLocalId.insert(pos);
-								break;
-							}
-							++pos;
-						}
-
-						//Assign the same color between the tracked line and his corresponding match
-						cv::Scalar color;
-						if(color_mode){
-							for(unsigned int i=0;i<linesOnCurrentFrame.size();i++){
-								if(colormap[i].first==matchedLine.global_id)
-									color=colormap[i].second;
-							}
-							cv::line( *curFrameRGB, matchedLine.startingPoint2d,matchedLine.endPoint2d, color, 2, 7 );
-						}
-
-						//Display of the projected tracked line
-						if(one_line_track){
-							 if(line_num==line_tracked){
-								 if(tracked_lines_iter->second.consecutive_frame>=15 && (KF_NUMBER-tracked_lines_iter->second.Kf_count)>=3)
-								 //cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
-									 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
-								 else
-									 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
-							 }
-						}
-						else{
-							if(color_mode)
-								//cv::line( *curFrameRGB, begin, end,color, 2, 8);
-								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", color, false);
-							else{
-								//cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
-								if(tracked_lines_iter->second.consecutive_frame>15){
-									if(tracked_lines_iter->second.global_id==1){
-										drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 0, 0), false);
-
-									}
-									else
-										drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
-								}
-								else
-									drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
-							}
-						}
-
-
-						//Update od the line coord
-						ADD_TO_MAP_LINE((*tracked_lines_iter).first, (*tracked_lines_iter).second, &tracked_lines); //reset counter
-						(*tracked_lines_iter).second.startingPoint2d=matchedLine.startingPoint2d;
-						(*tracked_lines_iter).second.endPoint2d=matchedLine.endPoint2d;
-						(*tracked_lines_iter).second.pluckerLinesObservation = matchedLine.pluckerLinesObservation;
-						(*tracked_lines_iter).second.T_frame_w=matchedLine.T_frame_w;
-							//(*tracked_lines_iter).second.anchor_id=matchedLine.anchor_id;
-							//}
-						if((*tracked_lines_iter).second.global_id==1)
-							cout << (*tracked_lines_iter).second.consecutive_frame << " consecutive frame for 1" << endl;
-
-						if((*tracked_lines_iter).second.consecutive_frame==15){
-							//Get the equation of the planes in the 2 frames
-							if(line_num==line_tracked && one_line_track && verbose)
-								cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<BOUM>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << tracked_lines_iter->second.consecutive_frame << " " << tracked_lines_iter->second.Kf_count << endl;
-							Vector4d plane1,plane2;
-							if(tracked_lines_iter->second.global_id==1 && verbose){
-								get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector,true);
-								get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector,true);
-							}
-							else{
-								get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector);
-								get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector);
-							}
-
-							//Get the plücker coordinates
-							Vector6d plucker_coord;
-							computePluckerFromPlanes(plane1,plane2,(*tracked_lines_iter).second.originalT.matrix(),(matchedLine.T_frame_w*T_actkey_from_w).matrix(),plucker_coord,(*tracked_lines_iter).second.global_id);
-							plucker_coord.normalize();
-							(*tracked_lines_iter).second.optimizedPluckerLines=plucker_coord;
-
-							//if((*tracked_lines_iter).second.global_id==1){
-							Vector3d l1 =(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.optimizedPluckerLines,l2=(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.GTPlucker;
-							pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-							pluckerToFile((*tracked_lines_iter).second.GTPlucker,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-							pluckerToFile(l1,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-							pluckerToFile(l2,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-								//}
-						}
-
-
-
-						//Update the SSD once a while
-						if(((*tracked_lines_iter).second.consecutive_frame%10)==0){ //Could switch with a modulo to get hw many consec frames were tracked
-							if((one_line_track && line_num==line_tracked)&&verbose)
-								cout << "UPDATE SSD" << endl;
-							(*tracked_lines_iter).second.descriptor=matchedLine.descriptor;
-							}
-
-
-						if(one_line_track && line_num==line_tracked){
-						//if((*tracked_lines_iter).second.global_id==1){
-						  cout << "Tracked line id : " << (*tracked_lines_iter).second.global_id << endl;
-						  auto ptr=tracked_lines_iter;
-						  pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id);
-						  cout  << (*ptr).first << " pluckercoord opt : " << (*ptr).second.optimizedPluckerLines[0] << " " << (*ptr).second.optimizedPluckerLines[1] << " " << (*ptr).second.optimizedPluckerLines[2] << " " << (*ptr).second.optimizedPluckerLines[3] << " " << (*ptr).second.optimizedPluckerLines[4] << " " << (*ptr).second.optimizedPluckerLines[5] << endl;
-						  }
-					}
-					else{
-
-					}
-	}
-
-}
 
 
 template <class Camera>
@@ -725,12 +572,11 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 
 
 	bool display=true;
-	bool verbose=false;
+	bool verbose=true;
 	bool one_line_track=false;
 	int line_tracked=0;
 	bool color_mode=false;
-	bool mono_mode=true;
-	bool matchmap_is_active=false;
+	bool matchmap_is_active=true;
 
 
 
@@ -751,7 +597,7 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 	  g_camera_matrix=camera_matrix;
 
 	  //Max accepted error during matching
-	  float polar_err=30;
+	  float polar_err=20;
 
 	  //Build color map of candidate lines
 	  vector<pair<int,cv::Scalar>> colormap;
@@ -799,43 +645,35 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 			  cout << "Following line : " << tracked_lines_iter->second.global_id << endl;
 
 		  cv::Point begin,end;
-		  if(!mono_mode){
 
-			  Vector3d transformedAndProjectedStartingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.startingPoint3d);
-			  Vector3d transformedAndProjectedEndingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.endPoint3d);
-			  transformedAndProjectedStartingPoint[0] = transformedAndProjectedStartingPoint[0]/transformedAndProjectedStartingPoint[2];
-			  transformedAndProjectedStartingPoint[1] = transformedAndProjectedStartingPoint[1]/transformedAndProjectedStartingPoint[2];
-			  transformedAndProjectedEndingPoint[0] = transformedAndProjectedEndingPoint[0]/transformedAndProjectedEndingPoint[2];
-			  transformedAndProjectedEndingPoint[1] = transformedAndProjectedEndingPoint[1]/transformedAndProjectedEndingPoint[2];
 
-			  //Project the tracked line in the image
-			  begin=cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]);
-			  end=cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]);
-		  }
-		  else{
-			  begin=tracked_lines_iter->second.startingPoint2d;
-			  end=tracked_lines_iter->second.endPoint2d;
-		  }
+		  Vector3d transformedAndProjectedStartingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.startingPoint3d);
+		  Vector3d transformedAndProjectedEndingPoint = projectionsMatrix*toHomogeneousCoordinates((*tracked_lines_iter).second.endPoint3d);
+		  transformedAndProjectedStartingPoint[0] = transformedAndProjectedStartingPoint[0]/transformedAndProjectedStartingPoint[2];
+		  transformedAndProjectedStartingPoint[1] = transformedAndProjectedStartingPoint[1]/transformedAndProjectedStartingPoint[2];
+		  transformedAndProjectedEndingPoint[0] = transformedAndProjectedEndingPoint[0]/transformedAndProjectedEndingPoint[2];
+		  transformedAndProjectedEndingPoint[1] = transformedAndProjectedEndingPoint[1]/transformedAndProjectedEndingPoint[2];
+
+		  //Project the tracked line in the image
+		  begin=cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]);
+		  end=cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]);
+
 
 		  Vector3d projectedHomogeneousLine2;
-		  if((*tracked_lines_iter).second.consecutive_frame>=15 && (KF_NUMBER-tracked_lines_iter->second.Kf_count)>=3){
-			  //Display all the tracked lines in purple
-			  //cv::line( *curFrameRGB, cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]), cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]), cv::Scalar(200,50,100), 8, 8 );
+		  //Display all the tracked lines in purple
+		 //cv::line( *curFrameRGB, cv::Point(transformedAndProjectedStartingPoint[0], transformedAndProjectedStartingPoint[1]), cv::Point(transformedAndProjectedEndingPoint[0], transformedAndProjectedEndingPoint[1]), cv::Scalar(200,50,100), 8, 8 );
 
 
-			 projectedHomogeneousLine2 = computeLineProjectionMatrix2(projectionsMatrix, toPlueckerMatrix((*tracked_lines_iter).second.optimizedPluckerLines));
-			 projectedHomogeneousLine2.normalize();
+		 projectedHomogeneousLine2 = computeLineProjectionMatrix2(projectionsMatrix, toPlueckerMatrix((*tracked_lines_iter).second.optimizedPluckerLines));
+		 projectedHomogeneousLine2.normalize();
 
 
-			 if(one_line_track && line_num==line_tracked && verbose)
-				 cout << "2d form : " << projectedHomogeneousLine2 << " <> " << tracked_lines_iter->second.pluckerLinesObservation << " <> " << tracked_lines_iter->second.linearForm << endl;
-		  }
-		  else{
-			 projectedHomogeneousLine2 = (*tracked_lines_iter).second.pluckerLinesObservation;
-			 //projectedHomogeneousLine2.normalize();
-		  }
+		 if(one_line_track && line_num==line_tracked && verbose)
+			 cout << "2d form : " << projectedHomogeneousLine2 << " <> " << tracked_lines_iter->second.pluckerLinesObservation << " <> " << tracked_lines_iter->second.linearForm << endl;
 
-		  projection_map.insert(make_pair(tracked_lines_iter->second.global_id,projectedHomogeneousLine2));
+
+
+		 projection_map.insert(make_pair(tracked_lines_iter->second.global_id,projectedHomogeneousLine2));
 
 		Vector2d reference_point;
 		projectReferencePoint(projectedHomogeneousLine2,tracked_lines_iter->second.rtheta,reference_point);
@@ -858,12 +696,13 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 
 			 //Define the error for the findNearest func
 
-			 if(one_line_track)
-				 polar_err=30;
-			 else
-				 polar_err=30;
 
 			 std::multimap<double,Line> nearestLines;
+			 if(tracked_lines_iter->second.type==0)
+				 polar_err=20;
+			 else
+				 polar_err=15;
+
 			 if(one_line_track && line_num==line_tracked && verbose)
 				 nearestLines = findNearestLinesOnCurrentFrameOrderedByDistance(projectedHomogeneousLine2, linesOnCurrentFrame,polar_err,reference_point, true);
 			 else
@@ -897,52 +736,64 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 			 for( auto nearest_lines_iter = nearestLines.begin(); nearest_lines_iter!= nearestLines.end(); ++nearest_lines_iter)
 			 {
 				double normalizedError;
-				 //if (matchTwoLines((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, true))
-				 if (matchTwoLinesSSD((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, false,30000)  && (!matchmap_is_active ||(matchmap.find((*nearest_lines_iter).second.global_id))->second==-1) )
-				 {
-					  matchedLines.insert(std::pair<double,std::pair<Line,double>>((*nearest_lines_iter).first,std::pair<Line,double>((*nearest_lines_iter).second, normalizedError)));
-					  if((!one_line_track || line_num==line_tracked)&&verbose)
-						  cout << "line kept" <<endl;
-				 }
-				 else
-				 {
-					 int maxSize = max((*tracked_lines_iter).second.descriptor.size(), (*nearest_lines_iter).second.descriptor.size());
-					 int minSize = min((*tracked_lines_iter).second.descriptor.size(), (*nearest_lines_iter).second.descriptor.size());
+				if((*nearest_lines_iter).second.type!=tracked_lines_iter->second.type || (*nearest_lines_iter).second.type==0 ){ //The line is rgb
 
-					 if(!((maxSize/ minSize)>2.0) && matchmap_is_active && (!matchmap_is_active || (matchmap.find((*nearest_lines_iter).second.global_id))->second==-1))
+					 //if (matchTwoLines((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, true))
+					 if (  (!matchmap_is_active ||(matchmap.find((*nearest_lines_iter).second.global_id))->second==-1)  && matchTwoLinesSSD((*tracked_lines_iter).second.descriptor,(*nearest_lines_iter).second.descriptor, normalizedError, false,30000)  )
 					 {
-						 //Count rejections because of SSD
-						extinction.find(2)->second+=1;
-						double inco=0.5*((1-nearest_lines_iter->first/polar_err)+30000./normalizedError);
-						if(extinction.find(5)->second<inco)
-							extinction.find(5)->second=inco;
-						 //Display in red the possible match
-						 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,255), 2, 8 );
-						 if((!one_line_track || line_num==line_tracked) && verbose)
-							 cout << "SSD are different ! " << nearest_lines_iter->first << " " << normalizedError << endl;
+						  matchedLines.insert(std::pair<double,std::pair<Line,double>>((*nearest_lines_iter).first,std::pair<Line,double>((*nearest_lines_iter).second, normalizedError)));
+						  if((!one_line_track || line_num==line_tracked)&&verbose)
+							  cout << "line kept" <<endl;
 					 }
-					 else{
-						 if(!matchmap_is_active || ((matchmap.find((*nearest_lines_iter).second.global_id))->second==-1)){
-							 //Count rejections because of bad size
-							extinction.find(3)->second+=1;
+					 else
+					 {
+						 int maxSize = max((*tracked_lines_iter).second.descriptor.size(), (*nearest_lines_iter).second.descriptor.size());
+						 int minSize = min((*tracked_lines_iter).second.descriptor.size(), (*nearest_lines_iter).second.descriptor.size());
 
-							 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,0), 2, 8 );
-							 if((!one_line_track || line_num==line_tracked) && verbose )
-								 cout << "size too different !" << endl;
-						 	}
-
+						 if(!((maxSize/ minSize)>2.0) && matchmap_is_active && (!matchmap_is_active || (matchmap.find((*nearest_lines_iter).second.global_id))->second==-1))
+						 {
+							 //Count rejections because of SSD
+							extinction.find(2)->second+=1;
+							double inco=0.5*((1-nearest_lines_iter->first/polar_err)+30000./normalizedError);
+							if(extinction.find(5)->second<inco)
+								extinction.find(5)->second=inco;
+							 //Display in red the possible match
+							 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,255), 2, 8 );
+							 if((!one_line_track || line_num==line_tracked) && verbose)
+								 cout << "SSD are different ! " << nearest_lines_iter->first << " " << normalizedError << endl;
+						 }
 						 else{
-							 if((!one_line_track || line_num==line_tracked) && verbose )
-								 cout << "already assigned to another line !" << endl;
+							 if(!matchmap_is_active || ((matchmap.find((*nearest_lines_iter).second.global_id))->second==-1)){
+								 //Count rejections because of bad size
+								extinction.find(3)->second+=1;
+
+								 //cv::line( *curFrameRGB, (*nearest_lines_iter).second.startingPoint2d, (*nearest_lines_iter).second.endPoint2d, cv::Scalar(0,0,0), 2, 8 );
+								 if((!one_line_track || line_num==line_tracked) && verbose )
+									 cout << "size too different !" << endl;
+								}
+
+							 else{
+								 if((!one_line_track || line_num==line_tracked) && verbose )
+									 cout << "already assigned to another line !" << endl;
+							 }
 						 }
 					 }
-				 }
+				}
+				else{ // The line is an oe
+					if( (!matchmap_is_active ||(matchmap.find((*nearest_lines_iter).second.global_id))->second==-1) && matchTwoLinesDD(nearest_lines_iter->second.d_descriptor,tracked_lines_iter->second.d_descriptor,normalizedError,true,1.4)){
+						matchedLines.insert(std::pair<double,std::pair<Line,double>>((*nearest_lines_iter).first,std::pair<Line,double>((*nearest_lines_iter).second, normalizedError)));
+					}
+					else{
+						if((!one_line_track || line_num==line_tracked) && verbose )
+							cout << "Bad DD descriptor !" << endl;
+					}
+				}
 
 			 }
 			 candidates.insert(make_pair(tracked_lines_iter->second.global_id,matchedLines));
 			 if (matchedLines.size() > 0)
 			{
-				 (*tracked_lines_iter).second.previousTransform.insert(make_pair(frame_id,T_cur_from_w.matrix()));
+
 				 (*tracked_lines_iter).second.consecutive_frame++;
 				 if(!one_line_track && verbose)
 					 cout << "match" << endl;
@@ -982,11 +833,11 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 				//Display of the projected tracked line
 				if(one_line_track){
 					 if(line_num==line_tracked){
-						 if(tracked_lines_iter->second.consecutive_frame>=15 && (KF_NUMBER-tracked_lines_iter->second.Kf_count)>=3)
+						 if(tracked_lines_iter->second.type>0)
 						 //cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
 							 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
 						 else
-							 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
+							 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0,0, 0), false);
 					 }
 				}
 				else{
@@ -995,16 +846,15 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 						drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", color, false);
 					else{
 						//cv::line( *curFrameRGB, begin, end,cv::Scalar(255,255,255), 2, 8);
-						if(tracked_lines_iter->second.consecutive_frame>15){
+						if(tracked_lines_iter->second.type>0){
 							if(tracked_lines_iter->second.global_id==1){
-								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 0, 0), false);
-
+								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 255, 128), false);
 							}
 							else
 								drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(255, 255, 255), false);
 						}
 						else
-							drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(128, 128, 128), false);
+							drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 0, 0), false);
 					}
 				}
 
@@ -1027,67 +877,25 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 
 					//cout << computeLineProjectionMatrix(projectionsMatrix) * (*tracked_lines_iter).second.optimizedPluckerLines.matrix() << " test val proj " << matchedLine.linearForm << endl;
 					//Add the 2d observation to the tracked line to prepare its 3D estimation
-					(*tracked_lines_iter).second.obsList.push_back(make_pair(matchedLine.linearForm,computeLineProjectionMatrix(projectionsMatrix)));
+
 
 
 					if((*tracked_lines_iter).second.global_id==1)
 						cout << (*tracked_lines_iter).second.consecutive_frame << " consecutive frame for 1" << endl;
 
-					if((*tracked_lines_iter).second.consecutive_frame==15){
-						//Get the equation of the planes in the 2 frames
-						if(line_num==line_tracked && one_line_track && verbose)
-							cout << "<<<<<<<<<<<<<<<<<<<<<<<<<<<BOUM>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << tracked_lines_iter->second.consecutive_frame << " " << tracked_lines_iter->second.Kf_count << endl;
-						Vector4d plane1,plane2;
-						if(tracked_lines_iter->second.global_id==1 && verbose){
-							get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector,true);
-							get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector,true);
-						}
-						else{
-							get_plan_equ((*tracked_lines_iter).second.linearForm,plane1,(*tracked_lines_iter).second.projectionVector);
-							get_plan_equ(matchedLine.linearForm,plane2,matchedLine.projectionVector);
-						}
-
-						//Get the plücker coordinates
-						Vector6d plucker_coord;
-						computePluckerFromPlanes(plane1,plane2,(*tracked_lines_iter).second.originalT.matrix(),(matchedLine.T_frame_w*T_actkey_from_w).matrix(),plucker_coord,(*tracked_lines_iter).second.global_id);
-						plucker_coord.normalize();
-						(*tracked_lines_iter).second.optimizedPluckerLines=plucker_coord;
 
 
 
-						//if((*tracked_lines_iter).second.global_id==1){
-						Vector3d l1 =(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.optimizedPluckerLines,l2=(computeLineProjectionMatrix(projectionsMatrix))*(*tracked_lines_iter).second.GTPlucker;
-						pluckerToFile((*tracked_lines_iter).second.optimizedPluckerLines,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-						pluckerToFile((*tracked_lines_iter).second.GTPlucker,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-						pluckerToFile(l1,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-						pluckerToFile(l2,(*tracked_lines_iter).second.global_id,"/home/rmb-am/Slam_datafiles/PluckerCoordLineEstim.txt");
-						//}
-					}
 
-
-//					if((*tracked_lines_iter).second.Kf_count==OptimThres){
-//
-//						Vector3d mean=Vector3d(),var=Vector3d(),lambda=Vector3d();
-//						for(auto ptr=(*tracked_lines_iter).second.obsList.begin();ptr!=(*tracked_lines_iter).second.obsList.end();ptr++){
-//							mean+=(*ptr).first;
-//						}
-//						mean/=OptimThres;
-//						for(auto ptr=(*tracked_lines_iter).second.obsList.begin();ptr!=(*tracked_lines_iter).second.obsList.end();ptr++){
-//							Vector3d diff=(*ptr).first-mean;
-//							var+=Vector3d(diff(0)*diff(0),diff(1)*diff(1),diff(2)*diff(2));
-//						}
-//						var/=OptimThres;
-//						getMatrixPower(var,(*tracked_lines_iter).second.lambda,-0.5);
-//
-//					}
-//				//}
 
 				//Update the SSD once a while
 				if(((*tracked_lines_iter).second.consecutive_frame%10)==0){ //Could switch with a modulo to get hw many consec frames were tracked
 					if((one_line_track && line_num==line_tracked)&&verbose)
 						cout << "UPDATE SSD" << endl;
 					(*tracked_lines_iter).second.descriptor=matchedLine.descriptor;
-					}
+					if((*tracked_lines_iter).second.type!=0)
+						(*tracked_lines_iter).second.d_descriptor=matchedLine.d_descriptor;
+				}
 
 
 				if(one_line_track && line_num==line_tracked){
@@ -1104,10 +912,10 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 			 else
 			 {
 				 if(display){
-					 if(tracked_lines_iter->second.consecutive_frame>=15)
-						 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 200, 55), false);
+					 if(tracked_lines_iter->second.type>0)
+						 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(0, 50, 200), false);
 					 else
-						 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(100, 100, 25), false);
+						 drawLine(projectedHomogeneousLine2, *curFrameRGB, "matches", cv::Scalar(90,90, 150), false);
 					 //cv::line( *curFrameRGB, begin, end, cv::Scalar(0,200,55), 2, 8 );
 				 }
 
@@ -1122,7 +930,7 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 			 cout<<"line outside frame"<<endl;
 			 cout << projectedHomogeneousLine2(0) << " " << projectedHomogeneousLine2(1) << " " << projectedHomogeneousLine2(2) << " " <<endl;
 		 }
-		 // /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\
+		 // /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\/////
 		 if(!matched)
 		 {
 		 // line is not inside frame, or has not been found -> decrement counter or erase it?
@@ -1130,13 +938,15 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 			 //the same lines and/or the sesnor not giving 3D information
 	     //cout<<"deleting tracked_line with id: "<<(*tracked_lines_iter).first<<" because no match was found"<<endl;
 		if((*tracked_lines_iter).second.count<=0)
-			  dumpToFile(std::to_string(tracked_lines_iter->second.global_id),extinction.find(0)->second,extinction.find(1)->second,extinction.find(2)->second,extinction.find(3)->second,extinction.find(4)->second,extinction.find(5)->second,1000000000000,"/home/rmb-am/Slam_datafiles/extinctionFile.txt");
-		 DEL_FROM_MAP_LINE((*tracked_lines_iter).first, (*tracked_lines_iter).second, &tracked_lines);
+			  {dumpToFile(std::to_string(tracked_lines_iter->second.global_id),extinction.find(0)->second,extinction.find(1)->second,extinction.find(2)->second,extinction.find(3)->second,extinction.find(4)->second,extinction.find(5)->second,1000000000000,"/home/rmb-am/Slam_datafiles/extinctionFile.txt");
+			  //dumpToFile(std::to_string(tracked_lines_iter->second.global_id),tracked_lines_iter->second.consecutive_frame,tracked_lines_iter->second.type,tracked_lines_iter->second.anchor_id,actkey_id,0,0,0,"/home/rmb-am/Slam_datafiles/line_duration.txt");
+	    }
+		DEL_FROM_MAP_LINE((*tracked_lines_iter).first, (*tracked_lines_iter).second, &tracked_lines);
 		 if(one_line_track && line_num==line_tracked && (*tracked_lines_iter).second.count==0)
 			 cout << "ERASING LINE !!!!!" << endl;
 
 		 }
-		 // /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\/
+		 // /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\  /!\////
 		 ++line_num;
 	  }
 
@@ -1163,8 +973,13 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 				  if((*ptr).second==-1){
 					  for(auto it=linesOnCurrentFrame.begin();it!=linesOnCurrentFrame.end();it++){
 						  if((*it).global_id==(*ptr).first){
-							  if(display)
-								  cv::line( *curFrameRGB, (*it).startingPoint2d, (*it).endPoint2d, cv::Scalar(0,0,255), 2, 8 );
+							  if(display){
+								  if(it->type>0)
+									  cv::line( *curFrameRGB, (*it).startingPoint2d, (*it).endPoint2d, cv::Scalar(0,0,255), 2, 8 );
+								  else
+									  cv::line( *curFrameRGB, (*it).startingPoint2d, (*it).endPoint2d, cv::Scalar(0,100,255), 2, 8 );
+							  }
+
 						  }
 					  }
 				  }
@@ -1172,8 +987,8 @@ void GuidedMatcher<Camera>::lineMatcher(std::vector<Line> &linesOnCurrentFrame,
 	  }
 
 	 	to_optimizer->tracked_lines=tracked_lines;
-	 	cv::imshow("matches", *curFrameRGB);
-		 cv::waitKey(1);
+	 	//cv::imshow("matches", *curFrameRGB);
+		// cv::waitKey(1);
 	  }
 	  else
 	  {
@@ -1280,6 +1095,33 @@ bool GuidedMatcher<Camera>::matchTwoLines(std::vector<int> descriptor1, std::vec
 		return false;
 	}
 }
+
+
+template <class Camera>
+bool GuidedMatcher<Camera>::matchTwoLinesDD(std::vector<float> descriptor1, std::vector<float> descriptor2, double &normalizedError, bool debug,double error_thr=1){
+
+	normalizedError=0;
+
+	if(descriptor1.size() != descriptor2.size()){
+		cout << "ERROR : different descriptor size !!!!!!" << endl;
+		return false;
+	}
+
+	normalizedError = 2 ;
+
+	for(int i = 0 ; i < descriptor1.size() ; i++){
+		normalizedError-=descriptor1[i]*descriptor2[i]; //The closer the histograms are, the smallest the error is.
+	}
+
+	if(debug) cout << "error : " << normalizedError << endl;
+
+	if(normalizedError>error_thr)
+		return false;
+	else
+		return true;
+
+}
+
 
 template <class Camera>
 bool GuidedMatcher<Camera>::matchTwoLinesSSD(std::vector<int> descriptor1, std::vector<int> descriptor2, double &normalizedError, bool debug,double error_thr=21000)

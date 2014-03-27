@@ -1115,46 +1115,22 @@ void SlamGraph<Pose,Cam,Proj,ObsDim>
 		{
 			int frame_id = it_win->first;
 			const Vertex & v = GET_MAP_ELEM(frame_id, vertex_table_);
-
 			typename tr1::unordered_map<int, Line>::const_iterator found_line = v.tracked_lines.find(line_id);
-
 			if (found_line != v.tracked_lines.end())
 			{
-				found_frame_id.push_back(frame_id);
-				if(found_frame_id.size()<required_obs) //First case : not enough observations for optimization, we dont do anything
-					{
-					}
-				else{
-					if(found_frame_id.size()>required_obs) //Second case : the vertex already exists and we add an observation
-						{
-						SE3 T_me_f_w;
-						Matrix<double, 3, 3> linesLambda;
-						linesLambda.setIdentity();
-						g2o::OptimizableGraph::Vertex * vert = optimizer->vertex(line_id);
-						//const Vertex & v = GET_MAP_ELEM(frame_id, vertex_table_);
-						//typename tr1::unordered_map<int, Line>::const_iterator found_line = v.tracked_lines.find(line_id);
-						T_me_f_w=(*found_line).second.T_frame_w;
-						Vector3d lobs = (*found_line).second.pluckerLinesObservation;
-						addLineObsToG2o(lobs, linesLambda, line_id, frame_id,opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer,T_me_f_w);
-						}
-					else{ //Last case : creation of the vertex if enough observation for optim and inclusion of the previous Obs
-						//cout << " CREATION of line vertex " << line_id << "!!!!!!!!!!!!!!!!!"<< endl;
-						const Line & l = GET_MAP_ELEM(line_id, line_table_);
-						Vector6d obs = l.optimizedPluckerLines;
-						addPlueckerLineToG2o(obs, line_id, optimizer); //Changed to localObs from pluckerObs
-						for(auto ptr=found_frame_id.begin();ptr!=found_frame_id.end();ptr++){
-							const Vertex & v2 = GET_MAP_ELEM((*ptr), vertex_table_);
-							SE3 T_me_f_w;
-							typename tr1::unordered_map<int, Line>::const_iterator found_line2 = v2.tracked_lines.find(line_id);
-							Matrix<double, 3, 3> linesLambda;
-							linesLambda.setIdentity();
-							T_me_f_w=(*found_line2).second.T_frame_w;
-							Vector3d lobs = (*found_line2).second.pluckerLinesObservation;
-//							cout << "AHHHHHHHHHHHHHHHHHH " << frame_id << " = " << found_line->second.anchor_id << endl;
-							addLineObsToG2o(lobs, linesLambda, line_id, (*ptr) ,opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer,T_me_f_w);
-							}
-					}
+				Matrix<double, 6, 6> linesLambda;
+				linesLambda.setIdentity();
+//				linesLambda(0,0)= 1./4;linesLambda(1,1)= 1./4;linesLambda(2,2)= 1;linesLambda(3,3)= 1./4;linesLambda(4,4)= 1./2;linesLambda(5,5)= 1./2;
+     			linesLambda/=6;
+				g2o::OptimizableGraph::Vertex * vert = optimizer->vertex(line_id);
+				if (vert == NULL) //vertex has not been registered
+				{
+					const Line & l = GET_MAP_ELEM(line_id, line_table_);
+					addPlueckerLineToG2o(l.optimizedPluckerLines, line_id, optimizer);
+								//cout << "added line vertex with ID " << line_id << endl;
 				}
+				addLineObsToG2o((*found_line).second.pluckerLinesObservation, linesLambda, line_id, frame_id,
+				opt_params.use_robust_kernel, opt_params.huber_kernel_width, optimizer);
 			}
 		}
 	}

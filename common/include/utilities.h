@@ -24,7 +24,7 @@ using namespace Eigen;
 using namespace std;
 using namespace ScaViSLAM;
 
-inline double getEstimforBlur(Mat img,int kernel_size = 3,int scale = 1,int delta = 0,int ddepth = CV_16S){
+inline  double getEstimforBlur(Mat img,int kernel_size = 3,int scale = 1,int delta = 0,int ddepth = CV_16S){
 
 	Mat out,fout,bw;
 	double min,max;
@@ -43,7 +43,35 @@ inline double getEstimforBlur(Mat img,int kernel_size = 3,int scale = 1,int delt
 
 }
 
-inline void buildMatrix(MatrixXd& M, MatrixXd& X, vector<Vector3d> locPxPos, vector<Vector3d> gloPxPos,int start=0, int max_i=3){
+inline void create_lbp_mat(Mat& gray, Mat& out){
+
+	assert(gray.channels()==1);
+
+	out = Mat::zeros(gray.rows,gray.cols,CV_8U);
+	int kernelSize=3;
+
+	for(int i=1; i<gray.rows-1;i++){
+		for(int j = 1; j<gray.cols-1; j++){
+
+			unsigned char lbp=0;
+			int u=0;
+			for(int k=-floor(kernelSize/2);k<=floor(kernelSize/2);k++){
+				for(int l=-floor(kernelSize/2);l<=floor(kernelSize/2);l++){
+					if(!(k==0 && l==0) && gray.at<unsigned char>(i+k,j+l)>gray.at<unsigned char>(i,j)){
+						lbp |= 1 << (u);
+					}
+					u++;
+				}
+			}
+
+			out.at<unsigned char>(i,j)=lbp;
+		}
+	}
+
+}
+
+
+inline  void buildMatrix(MatrixXd& M, MatrixXd& X, vector<Vector3d> locPxPos, vector<Vector3d> gloPxPos,int start=0, int max_i=3){
 
 	for(int i=0;i<max_i;i++){
 			for(int j=0;j<3;j++){
@@ -57,7 +85,7 @@ inline void buildMatrix(MatrixXd& M, MatrixXd& X, vector<Vector3d> locPxPos, vec
 
 }
 
-inline void solveP3P(SE3& seeee,vector<Vector3d> locPxPos, vector<Vector3d> gloPxPos,int start=0,int max_i=3){
+inline  void solveP3P(SE3& seeee,vector<Vector3d> locPxPos, vector<Vector3d> gloPxPos,int start=0,int max_i=3){
 
 
 	if(max_i==0)
@@ -68,7 +96,7 @@ inline void solveP3P(SE3& seeee,vector<Vector3d> locPxPos, vector<Vector3d> gloP
 	Vector3d tr;
 	MatrixXd M(max_i,4),X(max_i,4);
 
-	cout << M.cols() << " " << M.rows() << endl;
+
 
 
 	//Build the matrix as the concat of the vecs
@@ -82,7 +110,6 @@ inline void solveP3P(SE3& seeee,vector<Vector3d> locPxPos, vector<Vector3d> gloP
 
 	for(int i=0;i<3;i++){
 		for(int j=0;j<3;j++){
-			//cout << "bip loop" << endl;
 			Rot(i,j)=H(i,j);
 		}
 		tr(i)=H(i,3);
@@ -99,13 +126,13 @@ inline void solveP3P(SE3& seeee,vector<Vector3d> locPxPos, vector<Vector3d> gloP
 	seeee.setRotationMatrix(final_R);
 	seeee.translation()=tr;
 	//WRONG !!!!!!! cout << final_R.UnitX() << " " << final_R.UnitY() << " " << final_R.UnitZ()  << endl;
-	cout << tr(0) << " " << tr(1) << " " << tr(2) << endl;
+	//cout << tr(0) << " " << tr(1) << " " << tr(2) << endl;
 
 
 
 }
 
-inline void findLineConflicts(int id_l1, int id_l2, std::multimap<double,std::pair<Line,double>> candidates_l1, std::multimap<double,std::pair<Line,double>> candidates_l2, vector<pair<int,int> > & conflicts){
+inline  void findLineConflicts(int id_l1, int id_l2, std::multimap<double,std::pair<Line,double>> candidates_l1, std::multimap<double,std::pair<Line,double>> candidates_l2, vector<pair<int,int> > & conflicts){
 	if(id_l1!=id_l2){
 		for(auto ptr=candidates_l1.begin();ptr!=candidates_l1.end();ptr++){
 			cout << "a" << endl;
@@ -123,7 +150,7 @@ inline void findLineConflicts(int id_l1, int id_l2, std::multimap<double,std::pa
 
 }
 
-inline void createPermutedVector(tr1::unordered_map<int,Line>& line_vector,vector<pair<int,Line> > & permuted_line_vector, int permutation_number, vector<pair<int,int> > conflicts){
+inline  void createPermutedVector(tr1::unordered_map<int,Line>& line_vector,vector<pair<int,Line> > & permuted_line_vector, int permutation_number, vector<pair<int,int> > conflicts){
 
 	//permuted_line_vector=line_vector;
 	for(auto ptr=line_vector.begin();ptr!=line_vector.end();ptr++)
@@ -152,7 +179,7 @@ inline void createPermutedVector(tr1::unordered_map<int,Line>& line_vector,vecto
 
 
 
-inline void dumpToFile(std::string frame_nb, double x, double y, double z, double rx=100000000000, double ry=100000000000, double rz=100000000000, double rw=100000000000, string filePath="/home/rmb-am/Slam_datafiles/measurements.txt"){
+inline  void dumpToFile(std::string frame_nb, double x, double y, double z, double rx=100000000000, double ry=100000000000, double rz=100000000000, double rw=100000000000, string filePath="/home/rmb-am/Slam_datafiles/measurements.txt"){
 
 	ofstream myfile;
 	myfile.open (filePath, ios::app);
@@ -187,7 +214,7 @@ inline void dumpToFile(std::string frame_nb, double x, double y, double z, doubl
 
 }
 
-inline void getTrackedLinesToFile(tr1::unordered_map<int,Line> tracked_lines){
+inline  void getTrackedLinesToFile(tr1::unordered_map<int,Line> tracked_lines){
 	int i=0;
 	for(auto ptr=tracked_lines.begin();ptr!=tracked_lines.end();ptr++){
 		if((*ptr).second.global_id==21)
@@ -202,13 +229,13 @@ inline void getTrackedLinesToFile(tr1::unordered_map<int,Line> tracked_lines){
 
 
 
-inline void cross(Mat& img, Point p, Scalar color=Scalar(255,0,0)){
+inline  void cross(Mat& img, Point p, Scalar color=Scalar(255,0,0)){
 
 	line(img,Point(p.x-5,p.y-5),Point(p.x+5,p.y+5),color,3,0,0);
 	line(img,Point(p.x-5,p.y+5),Point(p.x+5,p.y-5),color,3,0,0);
 }
 
-inline void display(Mat img,int scalex,int scaley,string title="new_img"){
+inline  void display(Mat img,int scalex,int scaley,string title="new_img"){
 
 	Mat out;
 	resize(img,out,Size(),scalex,scaley,INTER_LINEAR);
@@ -216,7 +243,7 @@ inline void display(Mat img,int scalex,int scaley,string title="new_img"){
 	waitKey(0);
 }
 
-inline void getMatrixFromFile(Mat& d, string d_name){
+inline  void getMatrixFromFile(Mat& d, string d_name){
 
 	FileStorage fs(d_name.c_str(), FileStorage::READ);
 	fs["d"] >> d;
@@ -264,7 +291,7 @@ inline void showPoints(Mat img,vector<Eigen::Vector2d> vPoints, string title="sh
 	 waitKey(0);
 }
 
-inline void showPoints(Mat img, Point pointP, string title="show points", Scalar color=Scalar(255,0,0)){
+inline  void showPoints(Mat img, Point pointP, string title="show points", Scalar color=Scalar(255,0,0)){
 	 Mat copy=img.clone();
 
 	 cross(copy,pointP,color);
@@ -278,12 +305,12 @@ inline double pseudoVecProd(Vector2d v1, Vector2d v2){
 	return v1(0)*v2(1)-v1(1)*v2(0);
 }
 
-inline double scalar_prod(Vector2d v1,Vector2d v2){
+inline  double scalar_prod(Vector2d v1,Vector2d v2){
 	return v1(0)*v2(0)+v1(1)*v2(1);
 }
 
 
-inline void projectReferencePoint(Vector3d line_equation,double rtheta, Vector2d& reference_point){
+inline  void projectReferencePoint(Vector3d line_equation,double rtheta, Vector2d& reference_point){
 	//OP= r er + rt etheta -->polar coord
 	//er = (a,b) if c<0 =-(a,b) else
 
@@ -302,7 +329,7 @@ inline void projectReferencePoint(Vector3d line_equation,double rtheta, Vector2d
 
 }
 
-inline double segmentIntersect(Vector2d p1, Vector2d p2, Vector2d p3, Vector2d v2){
+inline  double segmentIntersect(Vector2d p1, Vector2d p2, Vector2d p3, Vector2d v2){
 	//Some comments...
 	//v2 should be the line equation and be normalized but not the other vectors
 	Vector2d v1=(p2-p1),v3=p3-p1;
@@ -316,7 +343,7 @@ inline double segmentIntersect(Vector2d p1, Vector2d p2, Vector2d p3, Vector2d v
 }
 
 
-inline double getLineDistance(Vector2d candidate_line_projection_point,Vector2d candidate_line_projection_point2, Vector3d tracked_line_equation,Vector2d tr_l_pt, Vector2d& found_point){
+inline  double getLineDistance(Vector2d candidate_line_projection_point,Vector2d candidate_line_projection_point2, Vector3d tracked_line_equation,Vector2d tr_l_pt, Vector2d& found_point){
 	//We find the distance between a segment and a line with the use of points
 	//Either the starting point or ending point of the segment has the smallest distance with the line
 	//We estimate the error with the distance between the segment point and its orthogonal projection on the tracked line
@@ -357,18 +384,18 @@ inline void findIntersectionPoint(Vector4d plan1, Vector4d plan2, double z,Vecto
 
 
 
-inline void pluckerToFile(Vector6d pluckerLine,int line_id,String filePath="/home/rmb-am/Slam_datafiles/lineCoordEvol.txt"){
+inline  void pluckerToFile(Vector6d pluckerLine,int line_id,String filePath="/home/rmb-am/Slam_datafiles/lineCoordEvol.txt"){
 
 	dumpToFile(std::to_string(line_id),pluckerLine(0),pluckerLine(1),pluckerLine(2),pluckerLine(3),pluckerLine(4),pluckerLine(5),1000000000000,filePath);
 }
 
-inline void pluckerToFile(Vector3d pluckerLine,int line_id,String filePath="/home/rmb-am/Slam_datafiles/lineCoordEvol.txt"){
+inline  void pluckerToFile(Vector3d pluckerLine,int line_id,String filePath="/home/rmb-am/Slam_datafiles/lineCoordEvol.txt"){
 
 	dumpToFile(std::to_string(line_id),pluckerLine(0),pluckerLine(1),pluckerLine(2),1000000000000,1000000000000,1000000000000,1000000000000,filePath);
 }
 
 
-inline void matrixFromTwoVec(Vector4d& v1, Vector4d& v2, Matrix4d& out){
+inline  void matrixFromTwoVec(Vector4d& v1, Vector4d& v2, Matrix4d& out){
 	int n=v1.size();
 
 	if(v2.size()!=n){
@@ -382,7 +409,7 @@ inline void matrixFromTwoVec(Vector4d& v1, Vector4d& v2, Matrix4d& out){
 	}
 }
 
-inline void getProjectionVector(Vector2d pixelPoint,double focal_length, Vector3d& projectionDirection,bool verbose=false){
+inline  void getProjectionVector(Vector2d pixelPoint,double focal_length, Vector3d& projectionDirection,bool verbose=false){
 
 //	Vector2d cameraCenter=Vector2d(640,-480);
 //
@@ -411,7 +438,7 @@ inline void getProjectionVector(Vector2d pixelPoint,double focal_length, Vector3
 
 }
 
-inline void switchOne(Vector3d& Vec,int num){
+inline  void switchOne(Vector3d& Vec,int num){
 	if(num<3)
 		Vec(num)=-Vec(num);
 }
@@ -421,30 +448,33 @@ inline void switchOne(Vector4d& Vec,int num){
 		Vec(num)=-Vec(num);
 }
 
-inline void switchAll(Vector4d& Vec){
+inline  void switchAll(Vector4d& Vec){
 	Vec=-Vec;
 }
 
 
 
-inline double scalar_prod(Vector3d v1,Vector3d v2){
+inline  double scalar_prod(Vector3d v1,Vector3d v2){
 	return v1(0)*v2(0)+v1(1)*v2(1)+v1(2)*v2(2);
 }
 
-inline void vect_product(Vector3d v1, Vector3d v2, Vector3d& out){
+inline  void vect_product(Vector3d v1, Vector3d v2, Vector3d& out){
 	out(2)=v1(0)*v2(1)-v1(1)*v2(0);
 	out(0)=v1(1)*v2(2)-v1(2)*v2(1);
 	out(1)=v1(2)*v2(0)-v1(0)*v2(2);
 }
 
-inline void vect_product(Vector4d v1, Vector4d v2, Vector4d& out){
+inline  void vect_product(Vector4d v1, Vector4d v2, Vector4d& out){
 	out(2)=v1(0)*v2(1)-v1(1)*v2(0);
 	out(0)=v1(1)*v2(2)-v1(2)*v2(1);
 	out(1)=v1(2)*v2(0)-v1(0)*v2(2);
 	out(3)=0;
 }
 
-inline void get_plan_equ(Vector3d line_in_cam_frame, Vector4d& out, Vector3d camera_direction,bool verbose=false){
+
+
+
+inline  void get_plan_equ(Vector3d line_in_cam_frame, Vector4d& out, Vector3d camera_direction,bool verbose=false){
 
 	Vector3d lineCoord3D=line_in_cam_frame,normal;
 	lineCoord3D(2)=0;
@@ -479,7 +509,40 @@ inline void get_plan_equ(Vector3d line_in_cam_frame, Vector4d& out, Vector3d cam
 
 }
 
-inline void getTransformedNormalVect(Vector4d n,Matrix<double,4,4> transform,Vector4d& out,bool verbose=false){
+inline  void drawMyLine(Vector3d projectedHomogeneousLine, cv::Mat curFrameRGB, const string &WindowName, const cv::Scalar & color, bool verbose)
+{
+	if (projectedHomogeneousLine[1] != (double)0.0 && projectedHomogeneousLine[0] != (double)0.0)
+	{
+		int y = (-1) * (projectedHomogeneousLine[2] / projectedHomogeneousLine[1]);
+		int x = (-1) * (projectedHomogeneousLine[2] / projectedHomogeneousLine[0]);
+
+		if (y > 0 & x > 0)
+		{
+			if(verbose)	 cout<<"P: (0,"<<y<<") Q: ("<<x<<",0)"<<endl;
+			cv::line(curFrameRGB, cv::Point(0, y), cv::Point(x, 0), color, 2, 8);
+		}
+		else if (y < 0 & x > 0)
+		{
+			int newx = (-projectedHomogeneousLine[2] - 480 * projectedHomogeneousLine[1]) / projectedHomogeneousLine[0];
+			if(verbose)	 cout<<"P: ("<<x<<",0) Q: ("<<newx<<",480)"<<endl;
+			cv::line(curFrameRGB, cv::Point(x, 0), cv::Point(newx, 480), color, 2, 8);
+		}
+		else if (y > 0 & x < 0)
+		{
+			int newy = (-projectedHomogeneousLine[2] - 640 * projectedHomogeneousLine[0]) / projectedHomogeneousLine[1];
+			if(verbose)	 cout<<"P: (0,"<<y<<") Q: (640"<<newy<<")"<<endl;
+			cv::line(curFrameRGB, cv::Point(0, y), cv::Point(640, newy), color, 2, 8);
+		}else
+		{
+			cout<<"biak negatibo, x: "<<x<<" y: "<<y<<endl;
+			cout<<"projectedHomogeneousLine[0]: "<<projectedHomogeneousLine[0]<<" projectedHomogeneousLine[1]: "<<projectedHomogeneousLine[1]<<" projectedHomogeneousLine[2]:"<<projectedHomogeneousLine[2]<<endl;
+		}
+		cv::imshow(WindowName, curFrameRGB);
+
+	}
+}
+
+inline  void getTransformedNormalVect(Vector4d n,Matrix<double,4,4> transform,Vector4d& out,bool verbose=false){
 	Matrix<double,3,3>rot;
 	Vector3d tr;
 	for(int i=0;i<3;i++){
@@ -531,7 +594,7 @@ inline void computePluckerFromPlanes(Vector4d plane1, Vector4d plane2,Matrix<dou
 	out=toPlueckerVec(preout).reverse();
 }
 
-inline void convertEigenToCv(MatrixXd& eigenMat,int nbrow, int nbcol, Mat& cvMat){
+inline  void convertEigenToCv(MatrixXd& eigenMat,int nbrow, int nbcol, Mat& cvMat){
 
 	for(int i =0;i<nbrow;i++){
 		for(int j=0;j<nbcol;j++){
@@ -541,7 +604,7 @@ inline void convertEigenToCv(MatrixXd& eigenMat,int nbrow, int nbcol, Mat& cvMat
 
 }
 
-inline void convertEigenToCv(Vector3d& eigenMat,int nbrow, Mat& cvMat){
+inline  void convertEigenToCv(Vector3d& eigenMat,int nbrow, Mat& cvMat){
 
 	for(int i =0;i<nbrow;i++){
 
@@ -551,7 +614,7 @@ inline void convertEigenToCv(Vector3d& eigenMat,int nbrow, Mat& cvMat){
 
 }
 
-inline void getMatrixPower(Vector3d & mat, Matrix3d & out, float p){
+inline  void getMatrixPower(Vector3d & mat, Matrix3d & out, float p){
 	//2 possibilities 0.5 and 2
 	for(int i=0;i<3;i++){
 		//for(int j=0;j<ncol;j++){
@@ -567,7 +630,7 @@ inline void getMatrixPower(Vector3d & mat, Matrix3d & out, float p){
 }
 
 
-inline vector<pair<int,int>>  lineBresenham(int p1x, int p1y, int p2x, int p2y,int k=0)
+  inline vector<pair<int,int>>  lineBresenham(int p1x, int p1y, int p2x, int p2y,int k=0)
 {
     int F, x, y;
     vector<pair<int,int>> pixelsOnLine;
@@ -727,7 +790,7 @@ inline vector<pair<int,int>>  lineBresenham(int p1x, int p1y, int p2x, int p2y,i
     return pixelsOnLine;
 }
 
-inline void showLines(Mat img, vector<cv::Vec4i> lv, string title="show points", Scalar color=Scalar(255,0,0)){
+  inline  void showLines(Mat img, vector<cv::Vec4i> lv, string title="show points", Scalar color=Scalar(255,0,0)){
 	 Mat pcopy=img.clone(),copy;
 	 cvtColor( pcopy,copy, CV_GRAY2RGB );
 
@@ -740,105 +803,9 @@ inline void showLines(Mat img, vector<cv::Vec4i> lv, string title="show points",
 	 waitKey(0);
 }
 
-inline bool gradTest(Mat img, Point p, Point directionVector, float refA,float thres=0.00,float thresA=0.1 ){
-
-	Mat ROI;
-	//cout << img.size()<< endl;
-	if((p.x-4)>0 && (p.x+4)<img.cols && (p.y-4)>0 && (p.y+4)<img.rows)
-		ROI=(img.colRange(p.x-4,p.x+4).rowRange(p.y-4,p.y+4)).clone();
-	else
-		return false;
-	Mat dx,dy;
-
-	//cout << "soebl"<< endl;
-	Sobel( ROI, dx, CV_32F, 1, 0, 3, 1, 0, BORDER_DEFAULT );
-	Sobel( ROI, dy, CV_32F, 0,1, 3, 1, 0, BORDER_DEFAULT );
-	//cout << "endl sobebleble" << endl;
-
-	double minVal;
-	double maxVal;
-	Point minLoc;
-	Point maxLoc;
-
-//	minMaxLoc( ROI, &minVal, &maxVal, &minLoc, &maxLoc );
-//	cout << maxVal << "max ROI" << endl;
-//	minMaxLoc( dx, &minVal, &maxVal, &minLoc, &maxLoc );
-//	cout << maxVal << "max dx" << endl;
-//	minMaxLoc( ROI, &minVal, &maxVal, &minLoc, &maxLoc );
-//	cout << maxVal << "max ROI" << endl;
-//	minMaxLoc( dy, &minVal, &maxVal, &minLoc, &maxLoc );
-//	cout << maxVal << "max dy" << endl;
-
-//	display(ROI,10,10,"ROI");
-//	display(dx,10,10,"dx");
-//	display(dy,10,10,"dy");
-	cout << ROI.size() << endl;
-
-	float intensity=abs(dx.at<float>(4,4))+abs(dy.at<float>(4,4));
-	float angle=atan(dy.at<float>(4,4)/dx.at<float>(4,4));
-	cout << intensity << " intensity<<>>angle " << angle<< endl;
-
-	//float intensity=mean(abs(dx)+abs(dy));
-
-	//cout << "end" << endl;
-	return ((intensity>thres)&&(cos(angle-refA)<thresA));
-}
 
 
 
-inline void findLines(vector<Point> fastDetection, Mat img,vector<Point> & trueLines){
-
-	for(unsigned int i=0;i<fastDetection.size();i++){
-		for(unsigned int j=i+1; j<fastDetection.size();j++){
 
 
-			//Test that the line is long enough
-			Point diff=fastDetection[i]-fastDetection[j];
-			if((abs(diff.x)+abs(diff.y))<30)
-				continue;
-
-
-			float diffAngle;
-			if(diff.x!=0)
-				diffAngle = atan(diff.y/diff.x);
-			else{
-				if(diff.y>0)
-					diffAngle=M_PI/2;
-				else
-					diffAngle=-M_PI/2;
-			}
-
-			//Test the grad val of the mid point
-			Point mid=(fastDetection[i]+fastDetection[j])*0.5;
-			if(!gradTest(img,mid,diff,diffAngle))
-				continue;
-
-			//Test the grad val of the first quarter of the line
-			Point fquarter=(3*fastDetection[i]+fastDetection[j])*0.25;
-			if(!gradTest(img,fquarter,diff,diffAngle))
-				continue;
-
-
-			//Test the grad val of the last quarter of the line
-			Point tquarter=(fastDetection[i]+3*fastDetection[j])*0.25;
-			if(!gradTest(img,tquarter,diff,diffAngle)){
-				continue;}
-
-
-			//Test all the pixels
-			vector<pair<int,int> > pixelOnLine= lineBresenham(fastDetection[i].x,fastDetection[i].y,fastDetection[j].x,fastDetection[j].y);
-			float good=0,bad=0;
-			for(auto ptr=pixelOnLine.begin(); ptr!=pixelOnLine.end();ptr++ ){
-				if(gradTest(img,Point((*ptr).first,(*ptr).second),diff,diffAngle))
-					good+=1;
-			}
-
-
-			//A majority should be edges
-			if((good/((float)pixelOnLine.size()))>=0.5)
-				trueLines.push_back(Point(i,j));
-		}
-	}
-
-}
 

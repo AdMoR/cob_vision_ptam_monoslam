@@ -118,6 +118,10 @@ public:
   vector<int>
   computeLineDescriptorSSD(int x1,int y1, int x2, int y2, vector<pair<int,int>> & pixelsOnLine);
 
+  void
+  includeNewLines(std::vector<Line> &linesOnCurrentFrame,vector<cv::Vec4i>& lines, cv::Mat& firstRGBFrame,cv::Mat& depth, cv::Mat& s_img, cv::Mat& oe, SE3 & T_cur_from_w, bool firstFrame, int frame_id, int type);
+
+
   const NeighborhoodPtr & neighborhood() const
   {
     return neighborhood_;
@@ -137,6 +141,7 @@ public:
   {
     return tracker_;
   }
+
 
   stack<AddToOptimzerPtr> to_optimizer_stack;
   tr1::unordered_map<int,Frame>  keyframe_map;
@@ -224,6 +229,8 @@ private:
 
   void
   computeLines(std::vector<Line>  &linesOnCurrentFrame, SE3 & T_cur_from_w, bool firstFrame, int frame_id);
+
+  void reduceLines(vector<cv::Vec4i>& linesOnCurrentFrame, double threshold, double angle_weigth);
 
   int computeMeanIntensityOfNeighborhood(const int x, const int y, const int sizeOfNeighborhood);
 
